@@ -1,15 +1,45 @@
-# Drop-in Agent Guide
+# Drop-in Agent Guide: Using OpenAI Agents with Agent Gateway
 
-This guide explains how to author OpenAI Agents SDK modules, drop them into the `src/agents/` folder, and serve them via the Agent Gateway without modifying YAML files or writing custom wrappers.
+## 1. Overview
 
-## 1. Prerequisites
+The **Agent Gateway** is an OpenAI-compatible orchestration service that connects chat UIs (like Open WebUI or custom frontends) to both **local and cloud-based LLM backends** (OpenAI, LM Studio, Ollama, vLLM). It exposes a standard `/v1/chat/completions` endpoint, allowing SDK-defined agents to be used as if they were OpenAI models.
 
-- Python 3.10+ with the `openai-agents` package installed in the same environment as the gateway.
-- Access to an upstream OpenAI-compatible LLM endpoint (OpenAI, LM Studio, Ollama, etc.).
-- An API key configured in `src/config/security.yaml` or the `GATEWAY_API_KEY` environment variable.
-- Optional: permission to modify `src/config/security.yaml` if you need to lock module/tool allowlists.
+Agents are implemented using the **OpenAI Agents SDK** in Python. Each agent is defined as an `Agent` object with tools, instructions, and optional planning or sub-agent logic. The Gateway automatically discovers agents that follow its directory conventions and makes them available under `/v1/models`.
 
-## 2. Directory & Naming Conventions
+---
+
+## 2. Prerequisites
+
+* Python 3.10+ with the `openai-agents` package installed in the same environment as the gateway.
+* Access to an upstream OpenAI-compatible LLM endpoint (OpenAI, LM Studio, Ollama, etc.).
+* An API key configured in `src/config/security.yaml` or the `GATEWAY_API_KEY` environment variable.
+* Optional: permission to modify `src/config/security.yaml` if you need to lock module/tool allowlists.
+
+---
+
+## 3. Discovery Model
+
+The Agent Gateway uses a **drop-in discovery convention**:
+
+* Each agent resides in `src/agents/<AgentName>/agent.py`
+* The module **must export a top-level variable** named `agent`, which must be an instance of `Agent` from the OpenAI Agents SDK.
+* Example path: `src/agents/weather/agent.py`
+
+At runtime, the gateway recursively scans the directory defined by the environment variable `GATEWAY_AGENT_DISCOVERY_PATH` (default: `src/agents/`) to import these files. If the import fails (missing dependencies, syntax errors, etc.), the agent will not be registered and will not appear under `/v1/models`.
+
+### Relevant Environment Variables
+
+| Variable                       | Description                                               |
+| ------------------------------ | --------------------------------------------------------- |
+| `GATEWAY_AGENT_DISCOVERY_PATH` | Directory where agents are auto-discovered.               |
+| `GATEWAY_AGENT_AUTO_RELOAD`    | Enables live reload when files change.                    |
+| `GATEWAY_SECURITY_CONFIG`      | Path to `security.yaml` for tool and import whitelisting. |
+
+Agents that pass discovery are registered into the internal registry (`src/registry/agents.py`) and exposed via the API routes `src/api/routes/models.py` and `src/api/routes/chat.py`.
+
+---
+
+## 4. Directory & Naming Conventions
 
 ```
 src/
@@ -21,127 +51,136 @@ src/
       agent.py
 ```
 
-Rules:
+**Rules:**
 
-1. **Folder name → model ID**: The subfolder acts as the agent’s base name. The gateway derives the model identifier as `<namespace>/<name>` where `namespace` defaults to the folder’s top-level directory (or `default` if none). Example: `src/agents/ResearchAgent/agent.py` becomes `default/researchagent`.
-2. **Module exports**: Each `agent.py` must export either:
-   - An `Agent` instance (recommended).
-   - A callable that returns an `Agent`.
-   - A helper that already orchestrates Runner execution (e.g., `run_sync`), for legacy behavior.
-   The loader inspects the module for these symbols automatically; no YAML entry required.
-3. **Multiple agents per folder**: If you export multiple agents/functions, the gateway appends the attribute name to derive unique model IDs (e.g., `default/researchagent-secondary`).
-4. **Security allowlists**: By default, all modules are allowed. Operators can restrict execution by editing `src/config/security.yaml` and adjusting `default.dropin_module_allowlist` / `dropin_module_denylist`. Blocked modules are logged with the `agent.dropin.blocked` event.
+1. Folder name → model ID: The subfolder acts as the agent’s base name. The gateway derives the model identifier as `<namespace>/<name>` where `namespace` defaults to the folder’s top-level directory (or `default` if none). Example: `src/agents/ResearchAgent/agent.py` becomes `default/researchagent`.
+2. Module exports: Each `agent.py` must export an `Agent` instance, callable returning an `Agent`, or helper that orchestrates Runner execution.
+3. Multiple agents per folder: Additional exports append attribute names to form unique IDs (`default/researchagent-secondary`).
+4. Security allowlists: Managed via `security.yaml` (`dropin_module_allowlist` / `dropin_module_denylist`).
 
-## 3. Creating an Agent
+---
 
-Example (`src/agents/ResearchAgent/agent.py`):
+## 5. Creating a Minimal SDK Agent
 
-```py
+```python
 from agents import Agent, function_tool
 
 @function_tool
-def web_summary(query: str) -> str:
-    return f"Summarized: {query}"
+def get_time() -> str:
+    import datetime
+    return datetime.datetime.now().isoformat()
 
 agent = Agent(
-    name="Research Agent",
-    instructions="Perform deep research. Cite your findings.",
-    tools=[web_summary],
+    name="ExampleAgent",
+    instructions="Respond to user queries and report current time.",
+    tools=[get_time],
 )
 ```
 
-After saving the file:
+**Key Points:**
 
-1. Start (or restart) the gateway: `PYTHONPATH=src uvicorn api.main:app --reload`.
-2. Call `GET /v1/models` or `GET /admin/agents` using a valid API key. You should see `default/researchagent`.
-3. Use the model via the OpenAI-compatible chat API:
+* Use `@function_tool` to expose callable functions.
+* Export a top-level `agent` instance.
+* Sub-agents may be invoked through `Runner.run(sub_agent, query)`.
 
-```bash
-curl -X POST http://localhost:8000/v1/chat/completions \
-  -H "x-api-key: dev-secret" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "model": "default/researchagent",
-    "messages": [{"role": "user", "content": "Summarize the FFT paper"}],
-    "stream": true
-  }'
+---
+
+## 6. How Gateway Exposes Agents
+
+Once discovered, agents are registered using the `AgentRegistry` (`src/registry/agents.py`) and `sdk_adapter/adapter.py` bridges them to OpenAI-compatible REST schemas.
+
+Agents appear in `/v1/models`:
+
+```json
+{
+  "id": "example-agent",
+  "object": "model",
+  "owned_by": "agent-gateway",
+  "permission": []
+}
 ```
 
-The response streams Server-Sent Events (SSE) until a final `data: [DONE]` frame.
+Requests to `/v1/chat/completions` route automatically to the agent’s `agent.run()`.
 
-## 4. Using Gateway-managed Tools
+Handles:
 
-SDK agents retain full control over their `@function_tool` implementations. If you would like to reuse tools defined in `src/config/tools.yaml` (HTTP, MCP, or local providers), opt into the helper:
+* Streaming responses
+* Tool invocation and sandboxing
+* Observability via `sdk_adapter/context.py`
 
-```py
+---
+
+## 7. Gateway-Managed Tools
+
+The gateway includes a **centralized tool registry** (`src/config/tools.yaml`) exposed via `sdk_adapter/gateway_tools.py`.
+
+```python
 from sdk_adapter.gateway_tools import gateway_tool
 
+@gateway_tool
+def ping(url: str) -> str:
+    import requests
+    return requests.get(url).text[:200]
+```
+
+Shared tools follow `security.yaml` allowlists. Example reuse:
+
+```python
 http_echo = gateway_tool("http_echo")
-
-agent = Agent(
-    name="Echo Agent",
-    instructions="Call the HTTP echo tool.",
-    tools=[http_echo],
-)
+agent = Agent(name="EchoAgent", instructions="Call the HTTP echo tool.", tools=[http_echo])
 ```
 
-The helper enforces the same security policies as declarative agents:
+---
 
-- Tool allowlists (`default.local_tools_allowlist`) remain active.
-- Permission errors propagate back to the agent as `PermissionError`.
-- Invocations are logged and included in Prometheus metrics.
+## 8. Supported Runner Features
 
-## 5. Supported Runner Features
+All core OpenAI Agents SDK features work natively:
 
-All core OpenAI Agents SDK features work without modification:
+* `AgentHooks` events
+* `handoffs`, `as_tool`, `manager` patterns
+* Guardrails (`InputGuardrail`, `GuardrailFunctionOutput`)
+* Structured outputs and dynamic context
 
-- `AgentHooks` (start/end/tool/handoff events).
-- `handoffs`, `as_tool`, manager patterns.
-- `tool_use_behavior`, `tool_choice`, guardrails (`InputGuardrail`, `GuardrailFunctionOutput`).
-- Structured outputs via `output_type`.
-- Dynamic instructions receiving `RunContextWrapper`.
+Multi-agent workflows may import and nest other agents; gateway does not rewrite SDK logic.
 
-For multi-agent workflows, simply import additional agents/tools in the same module or nested packages. The gateway does not rewrite or normalize the SDK structures.
+---
 
-## 6. Testing Locally
+## 9. Testing & Hot Reload
 
-1. Run `python -m pytest tests/test_agent_discovery.py tests/test_sdk_adapter.py` (install dependencies first).
-2. Use the sample fixtures in `tests/fixtures/dropin_agents` to validate complex behaviors (handoffs, guardrails, hooks).
-3. Smoke-test streaming via curl or any OpenAI-compatible UI by toggling `stream: true`.
+1. Run `pytest tests/test_agent_discovery.py tests/test_sdk_adapter.py`.
+2. Use fixture agents in `tests/fixtures/dropin_agents`.
+3. Enable auto-reload: `GATEWAY_AGENT_AUTO_RELOAD=1`.
+4. During dev, use `uvicorn api.main:app --reload`.
 
-## 7. Troubleshooting
+---
 
-| Symptom | Likely Cause | Resolution |
-| --- | --- | --- |
-| Agent missing from `/v1/models` | Module blocked by allowlist/denylist or import error | Check logs (`agent.dropin.blocked`) and ensure module path matches the allowlist. Run `python -m compileall src/agents/<Name>` to catch syntax errors. |
-| 403 when invoking tool | Tool not in `local_tools_allowlist` or security policy | Update `src/config/security.yaml` allowlist or switch to an SDK-native `@function_tool`. |
-| Streaming emits only one chunk | Agent returned a short response or streaming disabled | Ensure `stream: true` in the request and that the agent is producing incremental output; inspect logs for `sdk_agent` events. |
-| ImportError for OpenAI Agents SDK | `pip install openai-agents` missing | Install the dependency inside the gateway environment. |
+## 10. Troubleshooting
 
-## 8. Hot Reload Tips
+| Symptom          | Likely Cause                   | Resolution                                         |
+| ---------------- | ------------------------------ | -------------------------------------------------- |
+| Agent missing    | Import error or blocked module | Check logs, ensure allowlist includes module       |
+| 403 tool errors  | Tool not in allowlist          | Edit `security.yaml` or use `@function_tool`       |
+| One-chunk stream | Streaming disabled             | Ensure `stream: true` and inspect `sdk_agent` logs |
+| SDK ImportError  | Missing dependency             | `pip install openai-agents`                        |
 
-- Enable `GATEWAY_AGENT_AUTO_RELOAD=1` (YAML) and rely on filesystem watchers provided by the registry to pick up new modules.
-- During development, run `uvicorn api.main:app --reload` to combine FastAPI reloads with discovery.
+---
 
-## 9. Example Repo Layout
+## 11. Example Workflow
 
-```
-.
-├── src/
-│   ├── agents/
-│   │   ├── ResearchAgent/
-│   │   │   └── agent.py
-│   │   └── WeatherAgent/
-│   │       └── agent.py
-│   └── config/
-│       ├── agents.yaml        # Legacy declarative entries (optional)
-│       ├── security.yaml      # Tool + module allowlists
-│       └── tools.yaml         # Gateway-managed HTTP/MCP/local tools
-└── docs/
-    ├── guides/
-    │   └── DropInAgentGuide.md
-    └── plans/
-        └── AgentGateway_10-Step_Development_Plan.md
+1. Create `src/agents/<YourAgent>/agent.py` exporting an `Agent`.
+2. Optionally add shared tools via `gateway_tool`.
+3. Restart or reload the gateway.
+4. Check `/v1/models` for registration.
+5. Invoke via standard OpenAI client:
+
+```bash
+curl http://localhost:8000/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{"model": "example-agent", "messages": [{"role": "user", "content": "Hi!"}]}'
 ```
 
-With this structure you can iterate quickly: drop a new `agent.py`, refresh `/v1/models`, and the UI will treat it as a selectable model without editing config files.
+---
+
+## 12. Summary
+
+By following this **drop-in convention**, developers can author new SDK agents under `src/agents/`, and the Agent Gateway will auto-discover, register, and expose them as OpenAI-compatible models—no YAML edits required. The combination of auto-discovery, centralized tools, and strict security controls allows for rapid experimentation while preserving operational safety.
