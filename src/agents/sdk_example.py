@@ -27,7 +27,7 @@ class EchoSDKAgent:
 
 
 def build_agent(**kwargs: Any) -> EchoSDKAgent:
-    """Factory referenced by config/agents.yaml for SDK agents."""
+    """Factory referenced by src/config/agents.yaml for SDK agents."""
 
     return EchoSDKAgent(client=kwargs.get("client"), agent=kwargs.get("agent"))
 

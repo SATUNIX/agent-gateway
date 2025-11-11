@@ -2,7 +2,7 @@
 
 Agent Gateway exposes a unified tool layer consumed by declarative and SDK agents. Tools may be implemented locally (Python callables), via HTTP endpoints, or MCP servers. This document covers configuration, security constraints, and execution semantics.
 
-## Tool Definitions (`config/tools.yaml`)
+## Tool Definitions (`src/config/tools.yaml`)
 
 Each tool entry includes:
 
@@ -52,7 +52,7 @@ tools:
 
 ## Security Considerations
 
-- Local modules run inside the gateway process. Only allow trusted packages and maintain the security allowlist (`config/security.yaml -> local_tools_allowlist`).
+- Local modules run inside the gateway process. Only allow trusted packages and maintain the security allowlist (`src/config/security.yaml -> local_tools_allowlist`).
 - HTTP/MCP tools can exfiltrate data; ensure TLS and authentication as needed.
 - Tool schemas provide a basic guardrail; consider wrapping sensitive tools with additional validation.
 

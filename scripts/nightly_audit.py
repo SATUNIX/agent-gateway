@@ -8,7 +8,8 @@ from pathlib import Path
 
 import yaml
 
-SECURITY_CONFIG = Path("config/security.yaml")
+REPO_ROOT = Path(__file__).resolve().parents[1]
+SECURITY_CONFIG = REPO_ROOT / "src" / "config" / "security.yaml"
 
 
 def load_security_config() -> dict:

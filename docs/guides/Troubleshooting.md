@@ -27,10 +27,10 @@ If registry changes aren’t taking effect:
 
 ## 4. Tool Sandbox Issues
 
-“Tool not permitted” indicates the module path is missing from `local_tools_allowlist`. Update `config/security.yaml`, then `POST /security/refresh`.
+“Tool not permitted” indicates the module path is missing from `local_tools_allowlist`. Update `src/config/security.yaml`, then `POST /security/refresh`.
 
 ## 5. MCP Connectivity
 
 - Verify MCP URL accepts POST requests and, if streaming, emits SSE lines.
-- Ensure TLS/headers are configured correctly in `config/tools.yaml`.
+- Ensure TLS/headers are configured correctly in `src/config/tools.yaml`.
 - Use logs (`event="tool.invoke"`) to view MCP payloads and errors.

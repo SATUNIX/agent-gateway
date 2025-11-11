@@ -3,7 +3,7 @@
 1. **Pre-flight**
    - Ensure `main` is green in CI and `make lint && make test` pass locally.
    - Review dependency updates (`pip list --outdated`) and security advisories.
-   - Confirm API keys in `config/security.yaml` have up-to-date expirations.
+   - Confirm API keys in `src/config/security.yaml` have up-to-date expirations.
 
 2. **Smoke & Integration**
    - Run `pytest tests/test_smoke_gateway.py`.

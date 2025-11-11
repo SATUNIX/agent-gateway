@@ -18,9 +18,9 @@ pytestmark = pytest.mark.skip(reason="Drop-in SDK support not implemented yet")
 
 
 def _materialize_fixture(tmp_path: pathlib.Path, name: str) -> pathlib.Path:
-    """Write the requested fixture under agents/<Name>/agent.py."""
+    """Write the requested fixture under src/agents/<Name>/agent.py."""
 
-    agent_dir = tmp_path / "agents" / name
+    agent_dir = tmp_path / "src" / "agents" / name
     agent_dir.mkdir(parents=True, exist_ok=True)
     (agent_dir / "__init__.py").write_text("", encoding="utf-8")
     (agent_dir / "agent.py").write_text(DROPIN_FIXTURES[name], encoding="utf-8")

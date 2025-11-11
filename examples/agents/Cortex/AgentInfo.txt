@@ -1,0 +1,3 @@
+Name: 		Cortex
+Description: 	A default large agent with general capabilities for larger tasks built using the OpenAI Agents SDK.
+ID:	 	CTX-001

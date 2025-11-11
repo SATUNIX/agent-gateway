@@ -4,9 +4,15 @@ from __future__ import annotations
 
 import os
 from functools import lru_cache
+from pathlib import Path
 from typing import List
 
 from pydantic import BaseModel, Field
+
+PACKAGE_DIR = Path(__file__).resolve().parent
+SRC_ROOT = PACKAGE_DIR.parent
+CONFIG_DIR = PACKAGE_DIR
+AGENTS_DIR = SRC_ROOT / "agents"
 
 
 def _split_csv(value: str | None) -> List[str]:
@@ -30,13 +36,14 @@ class Settings(BaseModel):
     api_key: str | None = Field(default=None, description="Gateway API key for auth")
     cors_origins: List[str] = Field(default_factory=lambda: ["*"])
     agent_config_path: str = Field(
-        default="config/agents.yaml", description="Path to agents YAML file"
+        default=str(CONFIG_DIR / "agents.yaml"),
+        description="Path to agents YAML file",
     )
     agent_auto_reload: bool = Field(
         default=False, description="Reload agent config when file changes"
     )
     agent_discovery_path: str = Field(
-        default="agents",
+        default=str(AGENTS_DIR),
         description="Root directory containing drop-in SDK agents",
     )
     agent_discovery_package: str = Field(
@@ -44,19 +51,22 @@ class Settings(BaseModel):
         description="Python package name corresponding to the discovery root",
     )
     upstream_config_path: str = Field(
-        default="config/upstreams.yaml", description="Path to upstreams YAML file"
+        default=str(CONFIG_DIR / "upstreams.yaml"),
+        description="Path to upstreams YAML file",
     )
     upstream_auto_reload: bool = Field(
         default=False, description="Reload upstream config when file changes"
     )
     tool_config_path: str = Field(
-        default="config/tools.yaml", description="Path to tool definitions"
+        default=str(CONFIG_DIR / "tools.yaml"),
+        description="Path to tool definitions",
     )
     tool_auto_reload: bool = Field(
         default=False, description="Reload tools when config changes"
     )
     security_config_path: str = Field(
-        default="config/security.yaml", description="Path to API key security config"
+        default=str(CONFIG_DIR / "security.yaml"),
+        description="Path to API key security config",
     )
     log_level: str = Field(default="INFO", description="Application log level")
     prometheus_enabled: bool = Field(
@@ -83,18 +93,24 @@ def get_settings() -> Settings:
         version=os.getenv("GATEWAY_VERSION", "0.1.0"),
         api_key=os.getenv("GATEWAY_API_KEY"),
         cors_origins=_split_csv(cors_value),
-        agent_config_path=os.getenv("GATEWAY_AGENT_CONFIG", "config/agents.yaml"),
+        agent_config_path=os.getenv(
+            "GATEWAY_AGENT_CONFIG", str(CONFIG_DIR / "agents.yaml")
+        ),
         agent_auto_reload=agent_auto_reload,
-        agent_discovery_path=os.getenv("GATEWAY_AGENT_DISCOVERY_PATH", "agents"),
+        agent_discovery_path=os.getenv(
+            "GATEWAY_AGENT_DISCOVERY_PATH", str(AGENTS_DIR)
+        ),
         agent_discovery_package=os.getenv("GATEWAY_AGENT_DISCOVERY_PACKAGE", "agents"),
         upstream_config_path=os.getenv(
-            "GATEWAY_UPSTREAM_CONFIG", "config/upstreams.yaml"
+            "GATEWAY_UPSTREAM_CONFIG", str(CONFIG_DIR / "upstreams.yaml")
         ),
         upstream_auto_reload=upstream_auto_reload,
-        tool_config_path=os.getenv("GATEWAY_TOOL_CONFIG", "config/tools.yaml"),
+        tool_config_path=os.getenv(
+            "GATEWAY_TOOL_CONFIG", str(CONFIG_DIR / "tools.yaml")
+        ),
         tool_auto_reload=tool_auto_reload,
         security_config_path=os.getenv(
-            "GATEWAY_SECURITY_CONFIG", "config/security.yaml"
+            "GATEWAY_SECURITY_CONFIG", str(CONFIG_DIR / "security.yaml")
         ),
         log_level=os.getenv("GATEWAY_LOG_LEVEL", "INFO"),
         prometheus_enabled=prometheus_enabled,

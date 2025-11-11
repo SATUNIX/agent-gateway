@@ -16,11 +16,11 @@ This guide explains how to expose an OpenAI Agents SDK-powered agent through Age
    - `messages`: merged system/history/input messages that the upstream would receive.
    - `policy`: hop/token limits derived from agent metadata.
 
-See `agents/sdk_example.py` for reference factories (`build_agent`, `return_string_agent`).
+See `src/agents/sdk_example.py` for reference factories (`build_agent`, `return_string_agent`).
 
 ## 2. Register the Agent
 
-Edit `config/agents.yaml` and add a new entry:
+Edit `src/config/agents.yaml` and add a new entry:
 
 ```yaml
 defaults:
@@ -71,6 +71,6 @@ The gateway resolves `labs/my_sdk_agent`, builds the context (system/history/inp
 - **Hot reload**: File timestamps must change for reload; ensure editors perform actual writes.
 - **Tool access**: SDK agents can invoke tools simply by including tool names in the YAML `tools` list; the executor handles the loop automatically.
 - **Security**: SDK modules run with the gateway’s Python interpreter; treat them as trusted code or sandbox them externally.
-- **OpenAI Agents SDK examples**: You can drop in files such as `agents/proper_example.py` (see repo sample) and reference `module: agents.proper_example:build_agent`. Ensure the `openai-agents` package is installed and `OPENAI_BASE_URL`/`OPENAI_API_KEY` point to the gateway.
+- **OpenAI Agents SDK examples**: You can drop in files such as `src/agents/proper_example.py` (see repo sample) and reference `module: agents.proper_example:build_agent`. Ensure the `openai-agents` package is installed and `OPENAI_BASE_URL`/`OPENAI_API_KEY` point to the gateway.
 
 For automated regression tests of SDK ingestion, see `tests/test_sdk_adapter.py` and `tests/test_agent_registry.py`.

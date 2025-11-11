@@ -55,7 +55,7 @@ class AgentExecutor:
         agent = self._agent_registry.get_agent(identifier)
         if not agent:
             raise AgentNotFoundError(
-                f"Unknown agent or model '{identifier}'. Register it in config/agents.yaml."
+                f"Unknown agent or model '{identifier}'. Register it in src/config/agents.yaml."
             )
         return agent
 

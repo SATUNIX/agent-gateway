@@ -2,7 +2,7 @@
 
 Agent Gateway enforces API-key authentication, per-agent allowlists, rate limiting, and local tool sandboxing. This guide explains how to manage keys, rotate secrets, and reload security policies without downtime.
 
-## Configuration (`config/security.yaml`)
+## Configuration (`src/config/security.yaml`)
 
 ```yaml
 version: 1
@@ -33,7 +33,7 @@ api_keys:
 
 ## Reloading Policies
 
-- **Hot reload**: `POST /security/refresh` (requires admin API key) reloads `config/security.yaml` and returns sanitized key metadata.
+- **Hot reload**: `POST /security/refresh` (requires admin API key) reloads `src/config/security.yaml` and returns sanitized key metadata.
 - **Auto reload**: Not enabled by default (to avoid accidental changes). Use the admin endpoint after updating the YAML file.
 
 ## Rotation Procedure
@@ -46,7 +46,7 @@ api_keys:
 
 ## Nightly Audit
 
-`scripts/nightly_audit.py` scans `config/security.yaml` and prints findings (missing expirations, keys expiring soon, dependency reminders). CI runs it nightly; failures should page operators.
+`scripts/nightly_audit.py` scans `src/config/security.yaml` and prints findings (missing expirations, keys expiring soon, dependency reminders). CI runs it nightly; failures should page operators.
 
 ## Local Tool Allowlist
 

@@ -5,7 +5,7 @@ Context: Based on “Agent Gateway - Final Design Specification”. Goal is a mo
 ## Step 1 - Scaffold Project
 **Status:** [x] Completed (FastAPI hello app, manifests, directories, helper scripts, git repo)
 - Objective: Initialize a production-ready Python service skeleton.
-- Key tasks: Set up FastAPI, Uvicorn, OpenAI SDK, PyYAML, Pydantic; create dirs `api/`, `agents/`, `registry/`, `tooling/`, `sdk_adapter/`, `config/`; add `requirements.txt`, `pyproject.toml`, basic `README` and `Makefile`/scripts.
+- Key tasks: Set up FastAPI, Uvicorn, OpenAI SDK, PyYAML, Pydantic; create dirs `src/api/`, `src/agents/`, `src/registry/`, `src/tooling/`, `src/sdk_adapter/`, `src/config/`; add `requirements.txt`, `pyproject.toml`, basic `README` and `Makefile`/scripts.
 - Deliverables: Running “hello” server; base folders; dependency lockfile.
 
 ## Step 2 - Build API Layer
@@ -18,7 +18,7 @@ Context: Based on “Agent Gateway - Final Design Specification”. Goal is a mo
 ## Step 3 - Implement Agent Registry
 **Status:** [x] Completed (YAML-driven registry with namespaces, hot reload, admin refresh endpoint)
 - Objective: Load and manage declarative (YAML/JSON) and SDK agents.
-- Key tasks: Define agent spec; load from `config/agents.yaml`; support namespacing and hot-reload in dev; validation via Pydantic models.
+- Key tasks: Define agent spec; load from `src/config/agents.yaml`; support namespacing and hot-reload in dev; validation via Pydantic models.
 - Deliverables: Registry module with list/get/refresh; sample agents file.
 - Depends on: Steps 1–2.
 
@@ -128,6 +128,5 @@ agents:
 - Tool calls round‑trip via MCP/HTTP/LocalPython with logs and metrics.
 - Basic auth, ACLs, and rate limiting active.
 - Tests green and Docker image runs with sample config.
-
 
 

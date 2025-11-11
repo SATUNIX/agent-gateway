@@ -26,8 +26,14 @@ dev = [
 requires = ["setuptools>=69", "wheel"]
 build-backend = "setuptools.build_meta"
 
+[tool.setuptools.package-dir]
+"" = "src"
+
+[tool.setuptools.package-data]
+"config" = ["*.yaml"]
+
 [tool.setuptools.packages.find]
-where = ["."]
+where = ["src"]
 include = [
   "api*",
   "agents*",

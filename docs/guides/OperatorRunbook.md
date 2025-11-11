@@ -6,10 +6,10 @@ This runbook provides day-2 operations guidance for Agent Gateway, including con
 
 | Component | Config File | Override Env | Description |
 | --- | --- | --- | --- |
-| Agents | `config/agents.yaml` | `GATEWAY_AGENT_CONFIG` | Declarative + SDK agent definitions, namespace defaults, policies. |
-| Upstreams | `config/upstreams.yaml` | `GATEWAY_UPSTREAM_CONFIG` | Backend endpoints (LM Studio, Ollama, OpenAI), health checks, secrets. |
-| Tools | `config/tools.yaml` | `GATEWAY_TOOL_CONFIG` | Local/HTTP/MCP tools, schemas, MCP streaming flag. |
-| Security | `config/security.yaml` | `GATEWAY_SECURITY_CONFIG` | API keys, ACLs, rate limits, tool allowlists. |
+| Agents | `src/config/agents.yaml` | `GATEWAY_AGENT_CONFIG` | Declarative + SDK agent definitions, namespace defaults, policies. |
+| Upstreams | `src/config/upstreams.yaml` | `GATEWAY_UPSTREAM_CONFIG` | Backend endpoints (LM Studio, Ollama, OpenAI), health checks, secrets. |
+| Tools | `src/config/tools.yaml` | `GATEWAY_TOOL_CONFIG` | Local/HTTP/MCP tools, schemas, MCP streaming flag. |
+| Security | `src/config/security.yaml` | `GATEWAY_SECURITY_CONFIG` | API keys, ACLs, rate limits, tool allowlists. |
 | Logging | n/a | `GATEWAY_LOG_LEVEL` | Structured log severity (INFO, DEBUG, etc.). |
 | Metrics | n/a | `GATEWAY_PROMETHEUS_ENABLED` | Enables `/metrics/prometheus`. |
 
@@ -36,7 +36,7 @@ This runbook provides day-2 operations guidance for Agent Gateway, including con
 | --- | --- |
 | Reload agents/tools/upstreams | `POST /agents/refresh`, `/tools/refresh`, `/upstreams/refresh`. |
 | Reload security policies | `POST /security/refresh`. |
-| Rotate API keys | Update `config/security.yaml`, reload, update clients, remove old keys. |
+| Rotate API keys | Update `src/config/security.yaml`, reload, update clients, remove old keys. |
 | Generate SBOM | `make sbom`. |
 | Run nightly audit | `python scripts/nightly_audit.py` (automated in CI). |
 

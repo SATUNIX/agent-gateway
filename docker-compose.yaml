@@ -6,9 +6,9 @@ services:
     ports:
       - "8000:8000"
     environment:
-      - GATEWAY_UPSTREAM_CONFIG=/app/config/upstreams.yaml
-      - GATEWAY_SECURITY_CONFIG=/app/config/security.yaml
-      - GATEWAY_TOOL_CONFIG=/app/config/tools.yaml
+      - GATEWAY_UPSTREAM_CONFIG=/app/src/config/upstreams.yaml
+      - GATEWAY_SECURITY_CONFIG=/app/src/config/security.yaml
+      - GATEWAY_TOOL_CONFIG=/app/src/config/tools.yaml
       - GATEWAY_PROMETHEUS_ENABLED=true
     depends_on:
       - mock-upstream

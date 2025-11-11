@@ -1,4 +1,4 @@
-"""Reusable OpenAI Agents SDK samples extracted from docs/CodeReview.md."""
+"""Reusable OpenAI Agents SDK samples extracted from docs/plans/CodeReview.md."""
 
 from __future__ import annotations
 

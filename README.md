@@ -1,6 +1,6 @@
 # Agent Gateway
 
-Agent Gateway is a modular, OpenAI-compatible service that plugs your chat UI into OpenAI Agents SDK modules and local/cloud LLM backends (LM Studio, Ollama, vLLM, OpenAI). Drop a standard SDK agent into `agents/<Name>/agent.py`, and the gateway exposes it as a `/v1/chat/completions` model with routing, tooling, observability, and security handled for you.
+Agent Gateway is a modular, OpenAI-compatible service that plugs your chat UI into OpenAI Agents SDK modules and local/cloud LLM backends (LM Studio, Ollama, vLLM, OpenAI). Drop a standard SDK agent into `src/agents/<Name>/agent.py`, and the gateway exposes it as a `/v1/chat/completions` model with routing, tooling, observability, and security handled for you.
 
 ---
 
@@ -24,11 +24,11 @@ Agent Gateway is a modular, OpenAI-compatible service that plugs your chat UI in
 | Capability | Details |
 | --- | --- |
 | OpenAI-compatible API | `POST /v1/chat/completions` with streaming SSE, `GET /v1/models`, admin endpoints for agents/upstreams/tools/security. |
-| Drop-in SDK agents | Filesystem discovery under `agents/**` exposes each module as a `model` without editing YAML; supports hooks, handoffs, guardrails, structured outputs. |
+| Drop-in SDK agents | Filesystem discovery under `src/agents/**` exposes each module as a `model` without editing YAML; supports hooks, handoffs, guardrails, structured outputs. |
 | Tooling | Central Tool/MCP manager for local Python, HTTP, MCP providers plus optional `gateway_tool()` shim so SDK agents can reuse gateway-managed tools. |
 | Routing | Namespace-aware registries map models to upstream providers (OpenAI, LM Studio, Ollama, etc.) with per-agent execution policies. |
 | Security | API keys with ACLs/rate limits, tool allowlists, drop-in module allow/deny lists, `/security/refresh`, nightly audit scripts. |
-| Observability | Structured logs (request + `sdk_agent.*` events), Prometheus metrics, request IDs, dashboards (see `docs/observability.md`). |
+| Observability | Structured logs (request + `sdk_agent.*` events), Prometheus metrics, request IDs, dashboards (see `docs/systems/observability.md`). |
 | Packaging | Multi-stage Dockerfile, docker-compose stack, SBOM + release scripts, CI pipeline, operator runbooks. |
 
 ---
@@ -43,8 +43,9 @@ python3 -m venv .venv
 source .venv/bin/activate
 pip install --upgrade pip
 pip install -r requirements.txt
-cp config/security.yaml config/security.local.yaml   # optional customization
-export GATEWAY_SECURITY_CONFIG=config/security.yaml
+cp src/config/security.yaml src/config/security.local.yaml   # optional customization
+export GATEWAY_SECURITY_CONFIG=src/config/security.yaml
+export PYTHONPATH=src
 uvicorn api.main:app --reload
 ```
 Visit `http://127.0.0.1:8000/docs` for the OpenAPI explorer and `http://127.0.0.1:8000/v1/models` (with `x-api-key`) to see discovered agents.
@@ -57,7 +58,8 @@ python -m venv .venv
 .venv\Scripts\Activate.ps1
 python -m pip install --upgrade pip
 pip install -r requirements.txt
-setx GATEWAY_SECURITY_CONFIG "%CD%\config\security.yaml"
+setx GATEWAY_SECURITY_CONFIG "%CD%\src\config\security.yaml"
+set PYTHONPATH=%CD%\\src
 uvicorn api.main:app --reload
 ```
 Use `Invoke-WebRequest`/`curl` or an OpenAI-compatible UI (Open WebUI) pointed at `http://localhost:8000`.
@@ -67,7 +69,7 @@ Use `Invoke-WebRequest`/`curl` or an OpenAI-compatible UI (Open WebUI) pointed a
 ---
 
 ## Drop-in Agent Workflow
-1. **Write an SDK agent** under `agents/<AgentName>/agent.py`. Example:
+1. **Write an SDK agent** under `src/agents/<AgentName>/agent.py`. Example:
    ```py
    from agents import Agent, function_tool
    @function_tool
@@ -75,28 +77,29 @@ Use `Invoke-WebRequest`/`curl` or an OpenAI-compatible UI (Open WebUI) pointed a
        return f"The weather in {city} is sunny"
    agent = Agent(name="Weather Agent", instructions="Always respond with weather.", tools=[get_weather])
    ```
-2. **Start the gateway** (`uvicorn api.main:app --reload`). The registry scans `agents/**` and registers any exported `Agent` or factory automatically.
+2. **Start the gateway** (`PYTHONPATH=src uvicorn api.main:app --reload`). The registry scans `src/agents/**` and registers any exported `Agent` or factory automatically.
 3. **List models** – `curl -H "x-api-key: dev-secret" http://localhost:8000/v1/models`.
 4. **Chat** – POST to `/v1/chat/completions` with `{"model": "default/weatheragent", "messages": [...]}`. Set `stream:true` to receive SSE chunks.
-5. **Optional gateway tools** – Use `from sdk_adapter.gateway_tools import gateway_tool` to wrap entries from `config/tools.yaml`, retaining SDK semantics while gaining centralized security/logging.
+5. **Optional gateway tools** – Use `from sdk_adapter.gateway_tools import gateway_tool` to wrap entries from `src/config/tools.yaml`, retaining SDK semantics while gaining centralized security/logging.
 
-See `docs/DropInAgentGuide.md` for conventions, sample fixtures, and troubleshooting (import errors, module allowlists, tool permissions).
+See `docs/guides/DropInAgentGuide.md` for conventions, sample fixtures, and troubleshooting (import errors, module allowlists, tool permissions).
 
 ---
 
 ## Configuration & Documentation
 | File/Doc | Purpose |
 | --- | --- |
-| `config/agents.yaml` | Legacy declarative agents (still supported). |
-| `config/upstreams.yaml` | Upstream LLM providers (base URL, key, health checks). |
-| `config/tools.yaml` | Gateway-managed tools (local, HTTP, MCP). |
-| `config/security.yaml` | API keys, namespace ACLs, tool allowlists, drop-in module allow/deny lists. |
-| `docs/README.md` | Documentation index. |
-| `docs/DropInAgentGuide.md` | Step-by-step drop-in workflow, naming, troubleshooting. |
-| `docs/DropInAgents_TestPlan.md` | Acceptance criteria for SDK parity. |
-| `docs/OperatorRunbook.md` | Operations, incident response, config matrix. |
-| `docs/Troubleshooting.md` | Import issues, upstream failures, SSE debugging. |
-| `docs/tooling.md`, `docs/security.md`, `docs/observability.md`, `docs/resiliency.md` | Deep dives for each subsystem. |
+| `src/config/agents.yaml` | Legacy declarative agents (still supported). |
+| `src/config/upstreams.yaml` | Upstream LLM providers (base URL, key, health checks). |
+| `src/config/tools.yaml` | Gateway-managed tools (local, HTTP, MCP). |
+| `src/config/security.yaml` | API keys, namespace ACLs, tool allowlists, drop-in module allow/deny lists. |
+| `docs/README.md` | Overview of documentation categories. |
+| `docs/references/README.md` | Documentation index. |
+| `docs/guides/DropInAgentGuide.md` | Step-by-step drop-in workflow, naming, troubleshooting. |
+| `docs/plans/DropInAgents_TestPlan.md` | Acceptance criteria for SDK parity. |
+| `docs/guides/OperatorRunbook.md` | Operations, incident response, config matrix. |
+| `docs/guides/Troubleshooting.md` | Import issues, upstream failures, SSE debugging. |
+| `docs/systems/tooling.md`, `docs/systems/security.md`, `docs/systems/observability.md`, `docs/systems/resiliency.md` | Deep dives for each subsystem. |
 
 Environment overrides: `GATEWAY_AGENT_CONFIG`, `GATEWAY_UPSTREAM_CONFIG`, `GATEWAY_TOOL_CONFIG`, `GATEWAY_SECURITY_CONFIG`, `GATEWAY_AGENT_DISCOVERY_PATH`, `GATEWAY_AGENT_DISCOVERY_ALLOWLIST`, `GATEWAY_AGENT_DISCOVERY_DENYLIST`, `GATEWAY_AGENT_AUTO_RELOAD`, `GATEWAY_UPSTREAM_AUTO_RELOAD`, `GATEWAY_TOOL_AUTO_RELOAD`, `GATEWAY_LOG_LEVEL`, `GATEWAY_PROMETHEUS_ENABLED`, etc.
 
@@ -106,12 +109,12 @@ Environment overrides: `GATEWAY_AGENT_CONFIG`, `GATEWAY_UPSTREAM_CONFIG`, `GATEW
 | Issue | Resolution |
 | --- | --- |
 | Agent missing from `/v1/models` | Check logs for `agent.dropin.blocked` (module allowlist) or import errors; ensure the SDK module exports `agent`. |
-| 403 when invoking gateway tool | Tool module not in `local_tools_allowlist`. Edit `config/security.yaml` or use a native SDK `@function_tool`. |
+| 403 when invoking gateway tool | Tool module not in `local_tools_allowlist`. Edit `src/config/security.yaml` or use a native SDK `@function_tool`. |
 | Streaming stops after first chunk | The agent returned a complete response immediately. Verify `stream:true` and inspect logs for `sdk_agent.failure`. |
 | `PermissionError` on import | Install `openai-agents` in the same environment (`pip install openai-agents`). |
 | Rate limit exceeded (429) | Increase `rate_limit.per_minute` or spread requests across API keys. |
 
-Detailed remediation steps live in `docs/Troubleshooting.md`.
+Detailed remediation steps live in `docs/guides/Troubleshooting.md`.
 
 ## Make Targets
 | Target | Description |
@@ -142,7 +145,7 @@ All admin endpoints require `x-api-key`. ACL patterns control agent access; rate
 ## Observability & Security
 - Logs: structured JSON with request IDs, streaming events, `sdk_agent.start/success/failure`, tool invocations, upstream health.
 - Metrics: `/metrics` JSON snapshot + `/metrics/prometheus` exporter (request latency, tool latency, upstream status).
-- Security: API keys + ACLs in `config/security.yaml`, drop-in module allow/deny lists, tool allowlists, `/security/refresh`, nightly audit script, request rate limiting.
+- Security: API keys + ACLs in `src/config/security.yaml`, drop-in module allow/deny lists, tool allowlists, `/security/refresh`, nightly audit script, request rate limiting.
 
 ---
 
@@ -156,4 +159,4 @@ All admin endpoints require `x-api-key`. ACL patterns control agent access; rate
 ---
 
 ## Roadmap
-Progress against the 10-step plan (drop-in SDK enablement, security, docs, packaging, launch-readiness) is tracked in `docs/AgentGateway_10-Step_Development_Plan.md`. Refer there for current status and next milestones.
+Progress against the 10-step plan (drop-in SDK enablement, security, docs, packaging, launch-readiness) is tracked in `docs/plans/AgentGateway_10-Step_Development_Plan.md`. Refer there for current status and next milestones.

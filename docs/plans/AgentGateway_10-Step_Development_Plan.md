@@ -1,25 +1,25 @@
 # Agent Gateway – Drop-in SDK Enablement Plan
 
-**Context:** The code review (see `docs/CodeReview.md`) confirmed the gateway currently requires YAML-defined agent specs, ignores SDK-defined tools/handoffs/hooks, and forces custom runner wrappers. The goal is to allow engineers to create `agents/SomeAgent/agent.py` containing standard OpenAI Agents SDK definitions and have that agent automatically exposed as a `model` over `/v1/chat/completions`, with secure tool execution, streaming, and upstream routing. The following 10-step plan describes the concrete engineering work needed to reach that goal.
+**Context:** The code review (see `docs/plans/CodeReview.md`) confirmed the gateway currently requires YAML-defined agent specs, ignores SDK-defined tools/handoffs/hooks, and forces custom runner wrappers. The goal is to allow engineers to create `src/agents/SomeAgent/agent.py` containing standard OpenAI Agents SDK definitions and have that agent automatically exposed as a `model` over `/v1/chat/completions`, with secure tool execution, streaming, and upstream routing. The following 10-step plan describes the concrete engineering work needed to reach that goal.
 
 ---
 
 ## Step 1 – Define Target Contract & Acceptance Tests
 **Status:** [x] Completed  
-- **Objective:** Translate the SDK expectations from `docs/CodeReview.md` into executable requirements before making code changes.  
+- **Objective:** Translate the SDK expectations from `docs/plans/CodeReview.md` into executable requirements before making code changes.  
 - **Key tasks:**  
   - Capture sample agents/tools from the review doc as fixtures (handoffs, hooks, dynamic instructions, guardrails).  
-  - Define acceptance tests describing “drop a module under `agents/` and call `/v1/chat/completions` ➜ response streams back.”  
+  - Define acceptance tests describing “drop a module under `src/agents/` and call `/v1/chat/completions` ➜ response streams back.”  
   - Specify compatibility matrix for Runner features we must support in this release.  
-- **Deliverables:** ✅ `docs/DropInAgents_TestPlan.md` + `tests/test_dropin_agents_acceptance.py` (skipped) outlining the required UX.
+- **Deliverables:** ✅ `docs/plans/DropInAgents_TestPlan.md` + `tests/test_dropin_agents_acceptance.py` (skipped) outlining the required UX.
 
 ## Step 2 – Implement Agent Discovery & Registry Refactor
 **Status:** [x] Completed  
-- **Objective:** Replace the YAML-only registry with a loader that scans `agents/**/` for SDK modules and builds runtime metadata.  
+- **Objective:** Replace the YAML-only registry with a loader that scans `src/agents/**/` for SDK modules and builds runtime metadata.  
 - **Key tasks:**  
   - Walk the `agents` package (respecting `__init__` exclusions) and import discovered modules safely.  
   - Detect exported `Agent`, `Runner` factories, or helper functions without requiring YAML metadata.  
-  - Keep YAML only for legacy overrides; the default flow must be “add `agents/NewThing/agent.py` → it auto-appears in `/v1/models` with no registry edit.”  
+  - Keep YAML only for legacy overrides; the default flow must be “add `src/agents/NewThing/agent.py` → it auto-appears in `/v1/models` with no registry edit.”  
 - **Deliverables:** ✅ `registry/discovery.py`, updated `AgentRegistry` merge logic, plus `tests/test_agent_discovery.py` verifying discovered agents appear without YAML edits.
 
 ## Step 3 – Align Executor With Native SDK Runner
@@ -56,7 +56,7 @@
   - Enforce namespace ACLs on discovered agents (e.g., folder path = namespace).  
   - Validate imported modules against a configurable allowlist/denylist; document expectations for untrusted code.  
   - Extend tool security checks to cover SDK-defined tools (e.g., verifying underlying module paths).  
-- **Deliverables:** ✅ `security/manager.py` module allow/deny enforcement (configurable via `config/security.yaml`), registry integration that logs/blocks disallowed modules, and regression tests in `tests/test_security_manager.py`, `tests/test_agent_discovery.py`, and `tests/test_gateway_tools.py`.
+- **Deliverables:** ✅ `security/manager.py` module allow/deny enforcement (configurable via `src/config/security.yaml`), registry integration that logs/blocks disallowed modules, and regression tests in `tests/test_security_manager.py`, `tests/test_agent_discovery.py`, and `tests/test_gateway_tools.py`.
 
 ## Step 7 – Streaming, Error, and Observability Coverage
 **Status:** [x] Completed  
@@ -70,10 +70,10 @@
 **Status:** [x] Completed  
 - **Objective:** Provide a clear workflow describing how to author, drop in, test, and hot-reload SDK agents locally.  
 - **Key tasks:**  
-  - Update README + new “Drop-in Agent Guide” referencing the examples from `docs/CodeReview.md`.  
+  - Update README + new “Drop-in Agent Guide” referencing the examples from `docs/plans/CodeReview.md`.  
   - Document folder conventions, naming → model ID mapping, supported Runner features, and limitations.  
   - Publish troubleshooting steps for import errors, tool permission failures, and streaming diagnostics.  
-- **Deliverables:** ✅ `docs/DropInAgentGuide.md`, reorganized docs index (`docs/README.md`), enhanced README (cross-platform quick start, drop-in workflow, troubleshooting), and updated references in `docs/DropInAgents_TestPlan.md`.
+- **Deliverables:** ✅ `docs/guides/DropInAgentGuide.md`, reorganized docs index (`docs/references/README.md`), enhanced README (cross-platform quick start, drop-in workflow, troubleshooting), and updated references in `docs/plans/DropInAgents_TestPlan.md`.
 
 ## Step 9 – End-to-End UAT & Backend Matrix
 **Status:** [ ] Pending  
@@ -95,7 +95,7 @@
 ---
 
 ### Success Criteria After Completing the Plan
-- Engineers can add `agents/<AgentName>/agent.py` containing vanilla OpenAI Agents SDK code and see `<AgentName>` automatically exposed via `/v1/models`/`/v1/chat/completions` without touching YAML.  
+- Engineers can add `src/agents/<AgentName>/agent.py` containing vanilla OpenAI Agents SDK code and see `<AgentName>` automatically exposed via `/v1/models`/`/v1/chat/completions` without touching YAML.  
 - SDK-defined tools, handoffs, hooks, guardrails, and output types run unchanged through the gateway, with full streaming support and observability.  
 - Security policies, rate limits, and tool allowlists continue to apply to dynamically discovered agents.  
 - Documentation, tests, and CI/CD artifacts cover the new workflow end-to-end, enabling confident local or production deployments.

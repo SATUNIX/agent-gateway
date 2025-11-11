@@ -1,10 +1,10 @@
-# Agent Gateway Code Review Report
+# Agent Gateway Code Review Report 10/11/12
 
 ## Integration Status (Observed)
 
 **Status:** ❌ Does not support; gateway expects a custom format.
 
-Agent loading is entirely driven by `config/agents.yaml`, which requires synthetic fields such as `kind`, `namespace`, and a `module` string for SDK entries. The executor never inspects OpenAI Agents SDK objects directly (`registry/models.py` lines 13–43, `agents/executor.py` lines 54–59). The SDK adapter imports a callable and demands it return a runner exposing `run_sync/run`, rather than accepting the native `Agent/Runner` constructs from the OpenAI Agents SDK (`sdk_adapter/adapter.py` lines 31–96). The bundled **ProperExampleRunner** wrapper bridges `Runner.run` into that interface, proving that drop-in SDK files require editing (`agents/proper_example.py` lines 86–114).
+Agent loading is entirely driven by `src/config/agents.yaml`, which requires synthetic fields such as `kind`, `namespace`, and a `module` string for SDK entries. The executor never inspects OpenAI Agents SDK objects directly (`registry/models.py` lines 13–43, `src/agents/executor.py` lines 54–59). The SDK adapter imports a callable and demands it return a runner exposing `run_sync/run`, rather than accepting the native `Agent/Runner` constructs from the OpenAI Agents SDK (`sdk_adapter/adapter.py` lines 31–96). The bundled **ProperExampleRunner** wrapper bridges `Runner.run` into that interface, proving that drop-in SDK files require editing (`src/agents/proper_example.py` lines 86–114).
 
 ---
 
@@ -15,18 +15,18 @@ Agent loading is entirely driven by `config/agents.yaml`, which requires synthet
 | `api/main.py`                                                                 | 22–35                   | Wires FastAPI app, middleware, and chat/admin routers.                                      |
 | `api/routes/chat.py`                                                          | 14–31                   | Exposes POST `/v1/chat/completions` and routes to chat service.                             |
 | `api/services/chat.py`                                                        | 26–89                   | Handles streaming vs. non-streaming requests, delegates to `agent_executor`.                |
-| `agents/executor.py`                                                          | 33–236                  | Resolves agent IDs, runs declarative tools or SDK adapter when `kind=="sdk"`.               |
-| `registry/agents.py` & `config/agents.yaml`                                   | 15–83 / 1–29            | Maintains static YAML-defined catalog of agents; no dynamic discovery.                      |
-| `sdk_adapter/adapter.py`, `agents/sdk_example.py`, `agents/proper_example.py` | 31–145 / 29–46 / 86–114 | Show adapter’s callable import expectations and runner shim for SDK agents.                 |
-| `tooling/manager.py`                                                          | 24–205                  | Loads tools from `config/tools.yaml` and applies provider invocation logic outside the SDK. |
+| `src/agents/executor.py`                                                          | 33–236                  | Resolves agent IDs, runs declarative tools or SDK adapter when `kind=="sdk"`.               |
+| `registry/agents.py` & `src/config/agents.yaml`                                   | 15–83 / 1–29            | Maintains static YAML-defined catalog of agents; no dynamic discovery.                      |
+| `sdk_adapter/adapter.py`, `src/agents/sdk_example.py`, `src/agents/proper_example.py` | 31–145 / 29–46 / 86–114 | Show adapter’s callable import expectations and runner shim for SDK agents.                 |
+| `tooling/manager.py`                                                          | 24–205                  | Loads tools from `src/config/tools.yaml` and applies provider invocation logic outside the SDK. |
 
 ---
 
 ## Discovery / Auto-pickup Findings
 
 * `AgentRegistry` reads a single YAML path from settings; it sorts and caches entries but never scans Python modules (`registry/agents.py` 31–83).
-* Every SDK agent entry must declare `module: some.module:callable`; the `AgentSpec` validator enforces this field for `kind=="sdk"` (`registry/models.py` 13–43, `config/agents.yaml` 19–29).
-* The executor error explicitly states “Register it in config/agents.yaml,” confirming no auto-discovery (`agents/executor.py` 54–59).
+* Every SDK agent entry must declare `module: some.module:callable`; the `AgentSpec` validator enforces this field for `kind=="sdk"` (`registry/models.py` 13–43, `src/config/agents.yaml` 19–29).
+* The executor error explicitly states “Register it in src/config/agents.yaml,” confirming no auto-discovery (`src/agents/executor.py` 54–59).
 
 **Result:** No drop-in support; manual YAML edits required.
 
@@ -37,7 +37,7 @@ Agent loading is entirely driven by `config/agents.yaml`, which requires synthet
 | Component            | SDK Expectation                                         | Gateway Behavior                                                                                  | Verdict    |
 | -------------------- | ------------------------------------------------------- | ------------------------------------------------------------------------------------------------- | ---------- |
 | **Agent Definition** | Developers instantiate `Agent(...)` directly in Python. | Gateway reads metadata from YAML plus a factory callable string; does not import `Agent` objects. | ❌ Mismatch |
-| **Tools**            | Declared with `@function_tool` inside agent module.     | Ignores SDK tool decorators, instead uses `config/tools.yaml`; no dynamic attachment.             | ❌ Mismatch |
+| **Tools**            | Declared with `@function_tool` inside agent module.     | Ignores SDK tool decorators, instead uses `src/config/tools.yaml`; no dynamic attachment.             | ❌ Mismatch |
 | **Handoffs/Hooks**   | Supported through `AgentHooks` and handoffs.            | Never referenced; only works if manually wrapped (e.g., ProperExampleRunner).                     | ❌ Mismatch |
 | **Execution Entry**  | `Runner.run(agent, input=...)`                          | Requires callable returning `run_sync/run`; uses asyncio to execute.                              | ❌ Mismatch |
 
@@ -47,8 +47,8 @@ Agent loading is entirely driven by `config/agents.yaml`, which requires synthet
 
 * Chat UI posts to `/v1/chat/completions` (API-key protected).
 * Requests are processed via `ChatCompletionService` → `agent_executor.create_completion` (`api/services/chat.py` 26–89).
-* `agent_executor` resolves models strictly from YAML registry; dropped SDK files are ignored (`agents/executor.py` 40–59).
-* For SDK agents, the executor imports the callable specified in YAML and invokes it with message list + upstream client (`agents/executor.py` 157–184).
+* `agent_executor` resolves models strictly from YAML registry; dropped SDK files are ignored (`src/agents/executor.py` 40–59).
+* For SDK agents, the executor imports the callable specified in YAML and invokes it with message list + upstream client (`src/agents/executor.py` 157–184).
 * No `/v1/models` endpoint for listing; available agents are exposed only to admins via `/agents` (`api/routes/admin.py` 24–54).
 
 ---
@@ -57,8 +57,8 @@ Agent loading is entirely driven by `config/agents.yaml`, which requires synthet
 
 1. **Static YAML Schema Required:** Every agent must define `namespace`, `kind`, `module`. This diverges from SDK’s principle of in-module agent metadata (`registry/models.py` 13–43).
 2. **Gateway-specific Factory Layer:** The SDK adapter mandates `module:callable` returning custom runner signatures instead of directly consuming SDK agents (`sdk_adapter/adapter.py` 31–96).
-3. **Tool Schema Disconnect:** Gateway never forwards SDK tool declarations; relies on external YAML for tool registration (`agents/executor.py` 82–108).
-4. **Ignored SDK Hooks/Handoffs:** These constructs aren’t referenced by gateway code; only manual wrappers can trigger them (`agents/proper_example.py` 86–114).
+3. **Tool Schema Disconnect:** Gateway never forwards SDK tool declarations; relies on external YAML for tool registration (`src/agents/executor.py` 82–108).
+4. **Ignored SDK Hooks/Handoffs:** These constructs aren’t referenced by gateway code; only manual wrappers can trigger them (`src/agents/proper_example.py` 86–114).
 5. **Tool Invocation Bypass:** Tool execution enforced via `tool_manager.invoke_tool`, ignoring SDK `@function_tool` definitions (`tooling/manager.py` 24–205).
 
 ---
@@ -67,7 +67,7 @@ Agent loading is entirely driven by `config/agents.yaml`, which requires synthet
 
 ### Static Agent Registry via YAML
 
-The gateway uses a Pydantic-based registry that loads agent definitions from `config/agents.yaml`. Each agent must include `name`, `kind`, and for SDK agents, a `module` string (`module_path:callable`). Agents not listed here trigger `AgentNotFoundError`.
+The gateway uses a Pydantic-based registry that loads agent definitions from `src/config/agents.yaml`. Each agent must include `name`, `kind`, and for SDK agents, a `module` string (`module_path:callable`). Agents not listed here trigger `AgentNotFoundError`.
 
 ### SDK Adapter Dependency on YAML
 
@@ -96,7 +96,7 @@ The gateway diverges from this model, introducing a YAML registry that acts as a
 The gateway implementation is **not compliant** with the intended drop-in architecture. It does not dynamically discover or serve OpenAI Agents SDK agent files. To add an agent, a developer must:
 
 1. Place the agent module on the Python path.
-2. Edit `config/agents.yaml` to add an SDK entry with a `module:callable` path.
+2. Edit `src/config/agents.yaml` to add an SDK entry with a `module:callable` path.
 3. Optionally enable `agent_auto_reload` for YAML refresh.
 
 This design defeats the purpose of “drop-in” SDK agent deployment. Achieving true plug-and-play support would require eliminating YAML indirection, scanning for SDK `Agent` definitions, or allowing dynamic registration through the chat UI.
@@ -110,7 +110,7 @@ This design defeats the purpose of “drop-in” SDK agent deployment. Achieving
 
 ---
 Example agents: 
-These are code examples of agents which will be dropped in, the aim is to have these agents be dropped into the agent folder such as ./agents/ResearchAgent/agent.py and have that agent be served so you can chat with it, with no to absolute minimal code changes to the agent file to link it with the gateway. 
+These are code examples of agents which will be dropped in, the aim is to have these agents be dropped into the agent folder such as ./src/agents/ResearchAgent/agent.py and have that agent be served so you can chat with it, with no to absolute minimal code changes to the agent file to link it with the gateway. 
 
 ```py
 import asyncio

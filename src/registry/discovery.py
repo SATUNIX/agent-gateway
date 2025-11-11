@@ -38,7 +38,7 @@ class DiscoveredAgentExport:
 
 
 class AgentDiscoverer:
-    """Walks the agents/ directory and records exported SDK objects."""
+    """Walks the src/agents/ directory and records exported SDK objects."""
 
     def __init__(self, root: Path, package_name: str) -> None:
         self._root = root
