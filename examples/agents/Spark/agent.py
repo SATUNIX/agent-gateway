@@ -21,6 +21,8 @@ except ImportError as exc:  # pragma: no cover - optional dependency
         "Install it via `pip install openai-agents` and re-run."
     ) from exc
 
+from sdk_adapter.gateway_tools import use_gateway_tool
+
 
 @function_tool
 def compose_plan(goal: str) -> str:
@@ -60,11 +62,18 @@ spark_agent = Agent(
         You are Spark, a lightweight planning agent. For every request:
         1. Call compose_plan() with the user's goal to outline your approach.
         2. Call knowledge_hint() for topics mentioned in the request (pick the most relevant keyword).
-        3. Combine the plan + hint into a friendly answer with concrete next steps.
-        Keep outputs under 120 words.
+        3. When the user explicitly asks to "echo" or "reflect" text, call the gateway-managed http_echo tool.
+        4. Combine everything into a friendly answer with concrete next steps. Keep outputs under 120 words.
         """
     ).strip(),
-    tools=[compose_plan, knowledge_hint],
+    tools=[
+        compose_plan,
+        knowledge_hint,
+        use_gateway_tool(
+            "http_echo",
+            description="Gateway-managed HTTP echo utility for quick diagnostics.",
+        ),
+    ],
 )
 
 

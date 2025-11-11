@@ -7,7 +7,7 @@ import logging
 import threading
 import time
 from collections import deque
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Deque, Dict, List, Optional
 
@@ -17,9 +17,26 @@ import yaml
 
 from config import get_settings
 from security.models import APIKeyEntry, SecurityConfig
+from observability.errors import error_recorder
+from api.metrics import metrics
 
 
 logger = logging.getLogger("agent_gateway.security")
+
+
+@dataclass
+@dataclass
+class AgentOverride:
+    pattern: str
+    expires_at: float
+    reason: Optional[str] = None
+
+    def as_dict(self) -> Dict[str, Any]:
+        return {
+            "pattern": self.pattern,
+            "expires_at": int(self.expires_at),
+            "reason": self.reason,
+        }
 
 
 @dataclass
@@ -27,12 +44,44 @@ class AuthContext:
     key_id: Optional[str]
     allow_agents: List[str]
     rate_limit_per_minute: int
+    namespace_defaults: Dict[str, List[str]] = field(default_factory=dict)
+    overrides: List[AgentOverride] = field(default_factory=list)
 
-    def is_agent_allowed(self, qualified_name: str) -> bool:
+    def evaluate_agent(self, qualified_name: str, *, log_decision: bool = True) -> Dict[str, Any]:
+        namespace = qualified_name.split("/", 1)[0]
+
+        def _decision(
+            source: str, allowed: bool, pattern: Optional[str], extra: Optional[Dict[str, Any]] = None
+        ) -> Dict[str, Any]:
+            if log_decision:
+                self._log_decision(qualified_name, namespace, source, allowed, pattern, extra=extra)
+            return {
+                "allowed": allowed,
+                "source": source,
+                "pattern": pattern,
+            }
+
+        for override in self.overrides:
+            if self._match_pattern(override.pattern, qualified_name):
+                return _decision(
+                    "override",
+                    True,
+                    override.pattern,
+                    extra={"reason": override.reason, "expires_at": int(override.expires_at)},
+                )
+
+        for pattern in self.namespace_defaults.get(namespace, []):
+            if self._match_pattern(pattern, qualified_name):
+                return _decision("namespace_default", True, pattern)
+
         for pattern in self.allow_agents:
             if self._match_pattern(pattern, qualified_name):
-                return True
-        return False
+                return _decision("api_key", True, pattern)
+
+        return _decision("deny", False, None)
+
+    def is_agent_allowed(self, qualified_name: str) -> bool:
+        return self.evaluate_agent(qualified_name)["allowed"]
 
     @staticmethod
     def _match_pattern(pattern: str, name: str) -> bool:
@@ -42,6 +91,29 @@ class AuthContext:
             namespace = pattern[:-2]
             return name.startswith(f"{namespace}/")
         return pattern == name
+
+    def _log_decision(
+        self,
+        qualified_name: str,
+        namespace: str,
+        source: str,
+        allowed: bool,
+        pattern: Optional[str],
+        *,
+        extra: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        logger.info(
+            {
+                "event": "agent.security.decision",
+                "key_id": self.key_id,
+                "agent": qualified_name,
+                "namespace": namespace,
+                "decision": "allow" if allowed else "deny",
+                "source": source,
+                "pattern": pattern,
+                **(extra or {}),
+            }
+        )
 
 
 class RateLimitExceeded(PermissionError):
@@ -54,6 +126,8 @@ class SecurityManager:
         self._fallback_key = fallback_key
         self._lock = threading.RLock()
         self._rate_buckets: Dict[str, Deque[float]] = {}
+        self._agent_overrides: Dict[str, AgentOverride] = {}
+        self._namespace_agent_defaults: Dict[str, List[str]] = {}
         self._config = self._load_config()
         self._refresh_module_lists()
         self._keys = self._build_key_index()
@@ -67,9 +141,21 @@ class SecurityManager:
         if not self._keys:
             # No keys configured means open mode (legacy behavior)
             if provided_key is None and self._fallback_key is None:
-                return AuthContext(key_id=None, allow_agents=["*"], rate_limit_per_minute=10_000)
+                return AuthContext(
+                    key_id=None,
+                    allow_agents=["*"],
+                    rate_limit_per_minute=10_000,
+                    namespace_defaults=self._namespace_agent_defaults,
+                    overrides=self._active_agent_overrides(),
+                )
             if provided_key == self._fallback_key:
-                return AuthContext(key_id="fallback", allow_agents=["*"], rate_limit_per_minute=10_000)
+                return AuthContext(
+                    key_id="fallback",
+                    allow_agents=["*"],
+                    rate_limit_per_minute=10_000,
+                    namespace_defaults=self._namespace_agent_defaults,
+                    overrides=self._active_agent_overrides(),
+                )
             raise PermissionError("Invalid or missing API key")
 
         if not provided_key:
@@ -88,7 +174,13 @@ class SecurityManager:
 
         allow_agents = entry.allow_agents or self._config.default.allow_agents
         per_minute = entry.rate_limit.per_minute or self._config.default.rate_limit.per_minute
-        return AuthContext(key_id=entry.id, allow_agents=allow_agents, rate_limit_per_minute=per_minute)
+        return AuthContext(
+            key_id=entry.id,
+            allow_agents=allow_agents,
+            rate_limit_per_minute=per_minute,
+            namespace_defaults=self._namespace_agent_defaults,
+            overrides=self._active_agent_overrides(),
+        )
 
     def assert_tool_allowed(self, module_path: str) -> None:
         allowlist = self._config.default.local_tools_allowlist
@@ -139,11 +231,56 @@ class SecurityManager:
 
     def assert_agent_module_allowed(self, module_path: str) -> None:
         if self._matches_any(self._dropin_module_denylist, module_path):
-            raise PermissionError(f"Drop-in module '{module_path}' is blocked by security policy")
+            message = f"Drop-in module '{module_path}' is blocked by security policy"
+            self._record_security_event("module_blocked", message, {"module": module_path})
+            raise PermissionError(message)
         if self._dropin_module_allowlist and not self._matches_any(
             self._dropin_module_allowlist, module_path
         ):
-            raise PermissionError(f"Drop-in module '{module_path}' is not in the allowlist")
+            message = f"Drop-in module '{module_path}' is not in the allowlist"
+            self._record_security_event("module_not_allowed", message, {"module": module_path})
+            raise PermissionError(message)
+
+    def preview_agent(self, qualified_name: str) -> Dict[str, Any]:
+        overrides = self._active_agent_overrides()
+        context = AuthContext(
+            key_id="preview",
+            allow_agents=self._config.default.allow_agents,
+            rate_limit_per_minute=self._config.default.rate_limit.per_minute,
+            namespace_defaults=self._namespace_agent_defaults,
+            overrides=overrides,
+        )
+        decision = context.evaluate_agent(qualified_name, log_decision=False)
+        override_info = None
+        if decision["source"] == "override" and decision["pattern"]:
+            override = next((o for o in overrides if o.pattern == decision["pattern"]), None)
+            if override:
+                override_info = override.as_dict()
+        return {
+            "agent": qualified_name,
+            "allowed": decision["allowed"],
+            "source": decision["source"],
+            "pattern": decision["pattern"],
+            "override": override_info,
+        }
+
+    def add_agent_override(self, pattern: str, ttl_seconds: int, reason: Optional[str] = None) -> Dict[str, Any]:
+        if ttl_seconds <= 0:
+            raise ValueError("ttl_seconds must be greater than zero")
+        expires_at = time.time() + ttl_seconds
+        override = AgentOverride(pattern=pattern, expires_at=expires_at, reason=reason)
+        with self._lock:
+            self._purge_overrides()
+            self._agent_overrides[pattern] = override
+        logger.info(
+            {
+                "event": "agent.security.override.created",
+                "pattern": pattern,
+                "expires_at": int(expires_at),
+                "reason": reason,
+            }
+        )
+        return override.as_dict()
 
     def _build_key_index(self) -> Dict[str, APIKeyEntry]:
         index: Dict[str, APIKeyEntry] = {}
@@ -191,6 +328,31 @@ class SecurityManager:
         default = self._config.default
         self._dropin_module_allowlist = default.dropin_module_allowlist or ["*"]
         self._dropin_module_denylist = default.dropin_module_denylist or []
+        namespace_defaults: Dict[str, List[str]] = {}
+        for namespace, rules in default.namespace_defaults.items():
+            patterns = list(rules.allow_agents) if rules.allow_agents else [f"{namespace}/*"]
+            namespace_defaults[namespace] = patterns
+        self._namespace_agent_defaults = namespace_defaults
+
+    def _purge_overrides(self) -> None:
+        now = time.time()
+        removed = []
+        for pattern, override in list(self._agent_overrides.items()):
+            if override.expires_at <= now:
+                removed.append(pattern)
+                self._agent_overrides.pop(pattern, None)
+        if removed:
+            logger.info(
+                {
+                    "event": "agent.security.override.expired",
+                    "patterns": removed,
+                }
+            )
+
+    def _active_agent_overrides(self) -> List[AgentOverride]:
+        with self._lock:
+            self._purge_overrides()
+            return list(self._agent_overrides.values())
 
     @staticmethod
     def _matches_any(patterns: List[str], value: str) -> bool:
@@ -200,6 +362,10 @@ class SecurityManager:
             if fnmatch(value, pattern):
                 return True
         return False
+
+    def _record_security_event(self, kind: str, message: str, details: Dict[str, Any]) -> None:
+        metrics.record_dropin_failure(kind=kind)
+        error_recorder.record(event=kind, message=message, details=details)
 
 
 security_manager = SecurityManager.from_settings()

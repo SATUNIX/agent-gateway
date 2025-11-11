@@ -17,6 +17,7 @@ from registry.models import AgentSpec
 from tooling import ToolInvocationContext, tool_manager
 from sdk_adapter import SDKAgentAdapter, SDKAgentError
 from security import AuthContext
+from observability.context import update_log_context
 
 
 class AgentNotFoundError(RuntimeError):
@@ -45,11 +46,25 @@ class AgentExecutor:
             raise PermissionError(
                 f"API key does not permit access to agent '{agent.qualified_name}'"
             )
+        update_log_context(
+            agent_id=agent.qualified_name,
+            module_path=agent.module,
+            error_stage="agent_execution",
+        )
         policy = self._build_policy(agent, request)
         payload = self._build_payload(agent, request, policy)
-        if agent.kind == "sdk":
-            return await self._invoke_sdk_agent(agent, payload, request, policy)
-        return await self._run_tool_loop(agent, payload, request, policy)
+        try:
+            if agent.kind == "sdk":
+                try:
+                    return await self._invoke_sdk_agent(agent, payload, request, policy)
+                finally:
+                    update_log_context(error_stage=None)
+            try:
+                return await self._run_tool_loop(agent, payload, request, policy)
+            finally:
+                update_log_context(error_stage=None)
+        finally:
+            update_log_context(agent_id=None, module_path=None)
 
     def _resolve_agent(self, identifier: str) -> AgentSpec:
         agent = self._agent_registry.get_agent(identifier)
@@ -205,12 +220,17 @@ class AgentExecutor:
             request_id=response.id,
             policy=policy,
             user=request.user,
+            source="declarative",
         )
         for call in tool_calls:
             function = call["function"]
             arguments = self._parse_arguments(function.get("arguments"))
             tool_name = function.get("name")
-            result = tool_manager.invoke_tool(tool_name, arguments, context)
+            update_log_context(error_stage="tool_invocation", tool_name=tool_name)
+            try:
+                result = tool_manager.invoke_tool(tool_name, arguments, context)
+            finally:
+                update_log_context(tool_name=None)
             messages.append(
                 {
                     "role": "tool",

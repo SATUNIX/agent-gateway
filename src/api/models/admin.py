@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 
 
 class AgentInfo(BaseModel):
@@ -55,3 +55,41 @@ class SecurityKeyInfo(BaseModel):
     allow_agents: List[str]
     rate_limit_per_minute: int
     expires_at: Optional[str]
+
+
+class SecurityPreviewRequest(BaseModel):
+    agent: str
+
+
+class SecurityPreviewResponse(BaseModel):
+    agent: str
+    allowed: bool
+    source: str
+    pattern: Optional[str]
+    override: Optional[Dict[str, Any]] = None
+
+
+class SecurityOverrideRequest(BaseModel):
+    agent: str
+    ttl_seconds: int = Field(gt=0, lt=86_400)
+    reason: Optional[str] = None
+
+
+class SecurityOverrideResponse(BaseModel):
+    agent: str
+    pattern: str
+    expires_at: int
+    reason: Optional[str] = None
+
+
+class RecentError(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    timestamp: int
+    event: str
+    message: str
+    request_id: Optional[str] = None
+    agent_id: Optional[str] = None
+    module_path: Optional[str] = None
+    error_stage: Optional[str] = None
+    details: Optional[Dict[str, Any]] = None

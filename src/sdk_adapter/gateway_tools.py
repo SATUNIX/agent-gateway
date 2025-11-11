@@ -11,18 +11,26 @@ from sdk_adapter.context import get_run_context
 from tooling import ToolInvocationContext, tool_manager
 
 
+_TOOL_WRAPPER_CACHE: Dict[str, Callable[..., Any]] = {}
+
+
 def gateway_tool(tool_name: str, *, description: str | None = None) -> Callable[..., Any]:
-    """Return a function_tool that proxies through the gateway tool manager.
+    """Return (and cache) a function_tool proxy backed by the gateway tool manager.
 
     Example usage inside an OpenAI Agents SDK module::
 
-        from sdk_adapter.gateway_tools import gateway_tool
+        from sdk_adapter.gateway_tools import use_gateway_tool
 
-        http_echo = gateway_tool("http_echo")
+        http_echo = use_gateway_tool("http_echo")
 
         agent = Agent(name="Echo", tools=[http_echo])
     """
 
+    cached = _TOOL_WRAPPER_CACHE.get(tool_name)
+    if cached is not None and description is None:
+        return cached
+
+    _ensure_tool_available(tool_name)
     function_tool = _resolve_function_tool()
 
     @function_tool  # type: ignore[misc]
@@ -37,7 +45,14 @@ def gateway_tool(tool_name: str, *, description: str | None = None) -> Callable[
 
     _gateway_tool.__name__ = f"gateway_{tool_name}"
     _gateway_tool.__doc__ = description or f"Gateway-managed tool '{tool_name}'"
+    _TOOL_WRAPPER_CACHE[tool_name] = _gateway_tool
     return _gateway_tool
+
+
+def use_gateway_tool(tool_name: str, *, description: str | None = None) -> Callable[..., Any]:
+    """Ergonomic helper that auto-discovers gateway tools and caches wrappers."""
+
+    return gateway_tool(tool_name, description=description)
 
 
 def _resolve_function_tool() -> Callable[[Callable[..., Any]], Callable[..., Any]]:
@@ -57,7 +72,16 @@ def _build_invocation_context(policy: ExecutionPolicy, ctx) -> ToolInvocationCon
         request_id=request_id,
         policy=policy,
         user=ctx.request.user,
+        source="gateway",
     )
 
 
-__all__ = ["gateway_tool"]
+def _ensure_tool_available(tool_name: str) -> None:
+    tools = tool_manager.list_tools()
+    if tool_name not in tools:
+        raise RuntimeError(
+            f"Gateway-managed tool '{tool_name}' not found. Check src/config/tools.yaml."
+        )
+
+
+__all__ = ["gateway_tool", "use_gateway_tool"]

@@ -19,7 +19,8 @@ from config import get_settings
 from registry.models import ToolSpec, ToolsFile
 from security import security_manager
 from tooling.mcp_client import MCPClient
-from observability.context import get_request_id
+from observability.context import get_request_id, update_log_context
+from observability.errors import error_recorder
 
 
 class ToolExecutionError(RuntimeError):
@@ -32,6 +33,7 @@ class ToolInvocationContext:
     request_id: str
     policy: ExecutionPolicy
     user: Optional[str]
+    source: str = "declarative"
 
 
 logger = logging.getLogger("agent_gateway.tooling")
@@ -59,8 +61,10 @@ class ToolManager:
         self, name: str, arguments: Dict[str, Any], context: ToolInvocationContext
     ) -> str:
         self._auto_reload_if_needed()
+        update_log_context(tool_name=name, error_stage="tool_invocation")
         spec = self._tools.get(name)
         if not spec:
+            update_log_context(tool_name=None, error_stage=None)
             raise ToolExecutionError(f"Unknown tool: {name}")
         self._validate_arguments(spec, arguments)
         start = perf_counter()
@@ -83,6 +87,7 @@ class ToolManager:
                 provider=spec.provider,
                 latency_ms=latency_ms,
                 success=success,
+                source=context.source,
             )
             self._log_tool_event(
                 tool=spec.name,
@@ -90,7 +95,9 @@ class ToolManager:
                 arguments=arguments,
                 latency_ms=latency_ms,
                 success=success,
+                source=context.source,
             )
+            update_log_context(tool_name=None, error_stage=None)
 
     def list_tools(self) -> Dict[str, ToolSpec]:
         self._auto_reload_if_needed()
@@ -106,7 +113,20 @@ class ToolManager:
             raise ToolExecutionError(
                 f"Local tool '{spec.name}' is missing the 'module' attribute"
             )
-        security_manager.assert_tool_allowed(spec.module)
+        try:
+            security_manager.assert_tool_allowed(spec.module)
+        except PermissionError as exc:
+            metrics.record_dropin_failure(kind="tool_violation", agent=context.agent_name)
+            error_recorder.record(
+                event="tool_violation",
+                message=str(exc),
+                details={
+                    "tool": spec.name,
+                    "module": spec.module,
+                    "agent": context.agent_name,
+                },
+            )
+            raise
         func = self._get_local_callable(spec.module)
         result = func(arguments=arguments, context=context)
         return self._stringify_result(result)
@@ -166,6 +186,7 @@ class ToolManager:
         arguments: Dict[str, Any],
         latency_ms: float,
         success: bool,
+        source: str,
     ) -> None:
         level = logging.INFO if success else logging.WARNING
         logger.log(
@@ -174,6 +195,7 @@ class ToolManager:
                 "event": "tool.invoke",
                 "tool": tool,
                 "provider": provider,
+                "source": source,
                 "latency_ms": round(latency_ms, 3),
                 "status": "success" if success else "failure",
                 "arguments": arguments,

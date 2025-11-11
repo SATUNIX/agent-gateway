@@ -34,7 +34,7 @@ Drop a standard SDK agent into `src/agents/<Name>/agent.py`, and the gateway aut
 | ------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **OpenAI-Compatible API** | `/v1/chat/completions` (with streaming SSE) and admin endpoints for agents, upstreams, tools, and security.                                               |
 | **Drop-in SDK Agents**    | Agents under `src/agents/**` are automatically registered as models—no YAML edits required. Supports hooks, handoffs, guardrails, and structured outputs. |
-| **Tooling**               | Centralized Tool/MCP manager for local Python, HTTP, and MCP providers. Includes optional `gateway_tool()` shim for SDK reuse.                            |
+| **Tooling**               | Centralized Tool/MCP manager for local Python, HTTP, and MCP providers. Includes the `use_gateway_tool()` shim so SDK agents can reuse gateway tools.                            |
 | **Routing**               | Namespace-aware registries map models to upstream providers (OpenAI, LM Studio, Ollama, etc.) with per-agent execution policies.                          |
 | **Security**              | API keys, ACLs, rate limits, tool allowlists, module allow/deny lists, and nightly audit scripts.                                                         |
 | **Observability**         | Structured logs, Prometheus metrics, request IDs, and visual dashboards (`docs/systems/observability.md`).                                                |
@@ -110,7 +110,26 @@ uvicorn api.main:app --reload
    ```json
    {"model": "default/weatheragent", "messages": [{"role": "user", "content": "Weather in Tokyo"}]}
    ```
-5. **Optional:** Use `gateway_tool()` to wrap entries from `src/config/tools.yaml` for centralized logging and ACLs.
+5. **Optional:** Use `use_gateway_tool()` to wrap entries from `src/config/tools.yaml` for centralized logging and ACLs.
+
+Example (mixing native + gateway tools):
+
+```python
+from agents import Agent, function_tool
+from sdk_adapter.gateway_tools import use_gateway_tool
+
+@function_tool
+def summarize(text: str) -> str:
+    return text[:120] + "..."
+
+http_echo = use_gateway_tool("http_echo")
+
+agent = Agent(
+    name="SampleAgent",
+    instructions="Use summarize() for local context and http_echo for diagnostics.",
+    tools=[summarize, http_echo],
+)
+```
 
 See [`docs/guides/DropInAgentGuide.md`](docs/guides/DropInAgentGuide.md) for conventions, fixtures, and troubleshooting.
 

@@ -35,7 +35,8 @@ class GatewayMetrics:
     tool_invocations: int = 0
     tool_failures: int = 0
     tool_latency_ms: float = 0.0
-    tool_breakdown: Dict[str, Dict[str, float]] = field(default_factory=dict)
+    tool_breakdown: Dict[str, Dict[str, Dict[str, float]]] = field(default_factory=dict)
+    dropin_failure_counts: Dict[str, int] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         self._lock = Lock()
@@ -57,21 +58,28 @@ class GatewayMetrics:
         provider: str,
         latency_ms: float,
         success: bool,
+        source: str,
     ) -> None:
         with self._lock:
             self.tool_invocations += 1
             if not success:
                 self.tool_failures += 1
             self.tool_latency_ms += latency_ms
-            tool_stats = self.tool_breakdown.setdefault(
-                tool_name,
+            tool_sources = self.tool_breakdown.setdefault(tool_name, {})
+            source_stats = tool_sources.setdefault(
+                source,
                 {"provider": provider, "count": 0, "failures": 0, "latency_ms": 0.0},
             )
-            tool_stats["count"] += 1
-            tool_stats["latency_ms"] += latency_ms
+            source_stats["count"] += 1
+            source_stats["latency_ms"] += latency_ms
             if not success:
-                tool_stats["failures"] += 1
-        _prometheus_record_tool(tool_name, provider, latency_ms, success)
+                source_stats["failures"] += 1
+        _prometheus_record_tool(tool_name, provider, latency_ms, success, source)
+
+    def record_dropin_failure(self, *, kind: str) -> None:
+        with self._lock:
+            self.dropin_failure_counts[kind] = self.dropin_failure_counts.get(kind, 0) + 1
+        _prometheus_record_dropin_failure(kind)
 
     def snapshot(self) -> Dict[str, float]:
         with self._lock:
@@ -96,6 +104,7 @@ class GatewayMetrics:
                 "tool_failures": self.tool_failures,
                 "average_tool_latency_ms": round(avg_tool_latency, 3),
                 "tool_breakdown": self.tool_breakdown,
+                "dropin_failures": self.dropin_failure_counts,
             }
 
 
@@ -119,13 +128,13 @@ if PROMETHEUS_AVAILABLE:
     TOOL_COUNTER = Counter(
         "agent_gateway_tool_invocations_total",
         "Count of tool invocations",
-        labelnames=("tool", "provider", "status"),
+        labelnames=("tool", "provider", "status", "source"),
         registry=PROM_REGISTRY,
     )
     TOOL_LATENCY = Histogram(
         "agent_gateway_tool_latency_ms",
         "Latency of tool invocations in milliseconds",
-        labelnames=("tool", "provider"),
+        labelnames=("tool", "provider", "source"),
         registry=PROM_REGISTRY,
         buckets=(10, 25, 50, 100, 250, 500, 1000, float("inf")),
     )
@@ -150,6 +159,7 @@ else:
     TOOL_LATENCY = None
     UPSTREAM_COUNTER = None
     UPSTREAM_LATENCY = None
+    DROPIN_FAILURE_COUNTER = None
 
 
 def _prometheus_record_completion(latency_ms: float, streaming: bool) -> None:
@@ -160,13 +170,13 @@ def _prometheus_record_completion(latency_ms: float, streaming: bool) -> None:
 
 
 def _prometheus_record_tool(
-    tool: str, provider: str, latency_ms: float, success: bool
+    tool: str, provider: str, latency_ms: float, success: bool, source: str
 ) -> None:
     if not PROMETHEUS_AVAILABLE:
         return
     status = "success" if success else "failure"
-    TOOL_COUNTER.labels(tool=tool, provider=provider, status=status).inc()
-    TOOL_LATENCY.labels(tool=tool, provider=provider).observe(latency_ms)
+    TOOL_COUNTER.labels(tool=tool, provider=provider, status=status, source=source).inc()
+    TOOL_LATENCY.labels(tool=tool, provider=provider, source=source).observe(latency_ms)
 
 
 def record_upstream_call(upstream: str, latency_ms: float, success: bool) -> None:
@@ -175,6 +185,25 @@ def record_upstream_call(upstream: str, latency_ms: float, success: bool) -> Non
         UPSTREAM_COUNTER.labels(upstream=upstream, status=status).inc()
         UPSTREAM_LATENCY.labels(upstream=upstream).observe(latency_ms)
 
+
+if PROMETHEUS_AVAILABLE:
+    DROPIN_FAILURE_COUNTER = Counter(
+        "agent_gateway_dropin_failures_total",
+        "Count of drop-in related failures",
+        labelnames=("kind",),
+        registry=PROM_REGISTRY,
+    )
+else:
+    DROPIN_FAILURE_COUNTER = None
+
+
+def _prometheus_record_dropin_failure(kind: str) -> None:
+    if DROPIN_FAILURE_COUNTER is not None:
+        DROPIN_FAILURE_COUNTER.labels(kind=kind).inc()
+
+
+def record_dropin_failure(kind: str) -> None:
+    metrics.record_dropin_failure(kind=kind)
 
 def generate_prometheus_metrics() -> Tuple[bytes, str]:
     if not PROMETHEUS_AVAILABLE or PROM_REGISTRY is None:

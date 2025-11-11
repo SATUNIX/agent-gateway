@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 from pydantic import BaseModel, Field
 
@@ -22,12 +22,19 @@ class APIKeyEntry(BaseModel):
     expires_at: Optional[datetime] = None
 
 
+class NamespaceSecurity(BaseModel):
+    allow_agents: List[str] = Field(default_factory=list)
+    dropin_module_allowlist: List[str] = Field(default_factory=list)
+    dropin_module_denylist: List[str] = Field(default_factory=list)
+
+
 class DefaultSecurity(BaseModel):
     allow_agents: List[str] = Field(default_factory=lambda: ["*"])
     rate_limit: RateLimitConfig = Field(default_factory=RateLimitConfig)
     local_tools_allowlist: List[str] = Field(default_factory=lambda: ["tooling.local_tools:*"])
     dropin_module_allowlist: List[str] = Field(default_factory=lambda: ["*"])
     dropin_module_denylist: List[str] = Field(default_factory=list)
+    namespace_defaults: Dict[str, NamespaceSecurity] = Field(default_factory=dict)
 
 
 class SecurityConfig(BaseModel):

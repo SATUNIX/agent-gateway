@@ -8,10 +8,22 @@ from fastapi import APIRouter, Depends
 
 from api.auth import enforce_api_key
 from api.metrics import metrics
-from api.models.admin import AgentInfo, MetricsResponse, SecurityKeyInfo, ToolInfo, UpstreamInfo
+from api.models.admin import (
+    AgentInfo,
+    MetricsResponse,
+    SecurityKeyInfo,
+    SecurityOverrideRequest,
+    SecurityOverrideResponse,
+    SecurityPreviewRequest,
+    SecurityPreviewResponse,
+    ToolInfo,
+    UpstreamInfo,
+    RecentError,
+)
 from registry import agent_registry, upstream_registry
 from tooling import tool_manager
 from security import security_manager
+from observability.errors import error_recorder
 
 
 router = APIRouter(tags=["admin"], dependencies=[Depends(enforce_api_key)])
@@ -159,3 +171,36 @@ async def refresh_security() -> List[SecurityKeyInfo]:
         )
         for entry in security_manager.summary()
     ]
+
+
+@router.post(
+    "/security/preview",
+    response_model=SecurityPreviewResponse,
+    summary="Preview whether an agent would be allowed",
+)
+async def security_preview(request: SecurityPreviewRequest) -> SecurityPreviewResponse:
+    result = security_manager.preview_agent(request.agent)
+    return SecurityPreviewResponse(**result)
+
+
+@router.post(
+    "/security/override",
+    response_model=SecurityOverrideResponse,
+    summary="Create a temporary agent allowlist override",
+)
+async def security_override(request: SecurityOverrideRequest) -> SecurityOverrideResponse:
+    override = security_manager.add_agent_override(
+        pattern=request.agent,
+        ttl_seconds=request.ttl_seconds,
+        reason=request.reason,
+    )
+    return SecurityOverrideResponse(agent=request.agent, **override)
+
+
+@router.get(
+    "/agents/errors",
+    response_model=List[RecentError],
+    summary="List recent discovery/runtime errors",
+)
+async def list_agent_errors() -> List[RecentError]:
+    return [RecentError(**entry) for entry in error_recorder.list()]

@@ -5,20 +5,20 @@ Goal: Any engineer can drop an OpenAI Agents SDK module (e.g., `src/agents/Sampl
 ---
 
 
-## 4. Security Policy Flexibility (Breakdown)
-1. **4.1 Config Schema & Manager Support** – Extend `security/models.py` and `security/manager.py` to support per-namespace defaults plus in-memory override slots (TTL-based). Ensure `AuthContext` checks namespace defaults before global patterns.  
-2. **4.2 Admin Preview/Override APIs** – Add `/security/preview` (dry-run evaluation) and `/security/override` (temporary allowlist entry) in `src/api/routes/admin.py`, persisting overrides inside the security manager.  
-3. **4.3 Audit Logging & Docs** – Emit structured logs for every allow/deny decision (`agent.security.decision`) and document the workflow + override lifecycle in `docs/guides/OperatorRunbook.md`.
+## 4. Security Policy Flexibility (Breakdown) ✅
+1. **4.1 Config Schema & Manager Support** – Completed: namespace defaults + TTL overrides wired into `security/models.py` and `security/manager.py` with enriched `AuthContext`.  
+2. **4.2 Admin Preview/Override APIs** – Completed: `/security/preview` and `/security/override` endpoints expose dry-run and temporary allowlist flows.  
+3. **4.3 Audit Logging & Docs** – Completed: structured decision/override logs plus updated `docs/guides/OperatorRunbook.md`.
 
-## 5. Tooling Bridge & Metrics (Breakdown)
-1. **5.1 Gateway Tool Shim Enhancements** – Update `src/sdk_adapter/gateway_tools.py` to auto-discover gateway-managed tools, cache wrappers per tool name, and expose an ergonomic `use_gateway_tool("name")` helper.  
-2. **5.2 Tool Manager Provenance & Metrics** – Tag every tool invocation in `src/tooling/manager.py` with a `source` field (sdk-native vs gateway) and export Prometheus counters/timers for each.  
-3. **5.3 Developer Examples** – Add SampleAgent snippets (docs + `examples/agents/Spark`) showing simultaneous use of native `@function_tool` and `gateway_tool`, updating README/AGENTS guidance.
+## 5. Tooling Bridge & Metrics (Breakdown) ✅
+1. **5.1 Gateway Tool Shim Enhancements** – Completed: `src/sdk_adapter/gateway_tools.py` now verifies tools, caches wrappers, and exposes `use_gateway_tool()`.  
+2. **5.2 Tool Manager Provenance & Metrics** – Completed: all tool invocations carry `source` metadata plus Prometheus labels/counters.  
+3. **5.3 Developer Examples** – Completed: README/AGENTS and `examples/agents/Spark/agent.py` demonstrate mixing native `@function_tool` definitions with gateway-managed tools.
 
-## 6. Structured Error Reporting & Observability (Breakdown)
-1. **6.1 Middleware Context Enrichment** – Enhance `RequestLoggingMiddleware` and `observability/logging.py` to attach `agent_id`, `module_path`, `error_stage`, and correlation IDs to every log/event.  
-2. **6.2 Admin Errors Endpoint** – Introduce `/admin/agents/errors` powered by a ring buffer capturing recent discovery/runtime failures (ties into diagnostics already emitted by the registry/security manager).  
-3. **6.3 Metrics for Drop-In Failures** – Add Prometheus counters/gauges for import failures, blocked modules, tool violations, and expose them via existing metrics endpoints.
+## 6. Structured Error Reporting & Observability (Breakdown) ✅
+1. **6.1 Middleware Context Enrichment** – Completed: request/context middleware now enriches every log with `agent_id`, `module_path`, `error_stage`, and correlation IDs.  
+2. **6.2 Admin Errors Endpoint** – Completed: `/admin/agents/errors` surfaces a ring buffer combining discovery/security/tool failures.  
+3. **6.3 Metrics for Drop-In Failures** – Completed: Prometheus counters/gauges track import failures, blocked modules, and tool violations and surface them via existing metrics endpoints.
 
 ## 7. Hot Reload & Watch Mode (Breakdown)
 1. **7.1 Watchfiles Integration** – Add optional `watchfiles` dependency and `GATEWAY_AGENT_WATCH` setting; wire a background task that monitors `src/agents/**` and triggers targeted reloads.  

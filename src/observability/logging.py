@@ -8,7 +8,7 @@ import os
 from datetime import datetime, timezone
 from typing import Any, Dict
 
-from observability.context import get_request_id
+from observability.context import get_log_context, get_request_id
 
 
 class JSONFormatter(logging.Formatter):
@@ -21,6 +21,7 @@ class JSONFormatter(logging.Formatter):
             "logger": record.name,
             "request_id": get_request_id(),
         }
+        payload.update(get_log_context())
         if isinstance(record.msg, dict):
             payload.update(record.msg)
             message = payload.get("message")

@@ -6,7 +6,8 @@ from agents.policies import ExecutionPolicy
 from api.models.chat import ChatCompletionRequest
 from registry.models import AgentSpec
 from sdk_adapter.context import pop_run_context, push_run_context
-from sdk_adapter.gateway_tools import gateway_tool
+import sdk_adapter.gateway_tools as gateway_tools_module
+from sdk_adapter.gateway_tools import gateway_tool, use_gateway_tool
 
 
 def _build_agent_spec() -> AgentSpec:
@@ -32,9 +33,15 @@ def test_gateway_tool_invokes_tool_manager(monkeypatch):
         return "ok"
 
     class DummyManager:
+        tools = {"http_echo": object()}
+
         @staticmethod
         def invoke_tool(tool_name, arguments, context):
             return fake_invoker(tool_name, arguments, context)
+
+        @staticmethod
+        def list_tools():
+            return DummyManager.tools
 
     def fake_function_tool(func):
         def wrapper(*args, **kwargs):
@@ -42,6 +49,7 @@ def test_gateway_tool_invokes_tool_manager(monkeypatch):
 
         return wrapper
 
+    monkeypatch.setattr(gateway_tools_module, "_TOOL_WRAPPER_CACHE", {})
     monkeypatch.setattr(
         "sdk_adapter.gateway_tools.tool_manager",
         DummyManager,
@@ -76,9 +84,14 @@ def test_gateway_tool_invokes_tool_manager(monkeypatch):
 def test_gateway_tool_propagates_permission_error(monkeypatch):
     class DummyManager:
         @staticmethod
+        def list_tools():
+            return {"restricted": object()}
+
+        @staticmethod
         def invoke_tool(tool_name, arguments, context):
             raise PermissionError("blocked")
 
+    monkeypatch.setattr(gateway_tools_module, "_TOOL_WRAPPER_CACHE", {})
     monkeypatch.setattr(
         "sdk_adapter.gateway_tools.tool_manager",
         DummyManager,
@@ -104,3 +117,28 @@ def test_gateway_tool_propagates_permission_error(monkeypatch):
             tool()
     finally:
         pop_run_context(token)
+
+
+def test_use_gateway_tool_caches_wrappers(monkeypatch):
+    class DummyManager:
+        @staticmethod
+        def list_tools():
+            return {"summarize_text": object()}
+
+        @staticmethod
+        def invoke_tool(tool_name, arguments, context):
+            return "ok"
+
+    monkeypatch.setattr(gateway_tools_module, "_TOOL_WRAPPER_CACHE", {})
+    monkeypatch.setattr(
+        "sdk_adapter.gateway_tools.tool_manager",
+        DummyManager,
+    )
+    monkeypatch.setattr(
+        "sdk_adapter.gateway_tools._resolve_function_tool",
+        lambda: (lambda func: func),
+    )
+
+    tool_a = use_gateway_tool("summarize_text")
+    tool_b = use_gateway_tool("summarize_text")
+    assert tool_a is tool_b

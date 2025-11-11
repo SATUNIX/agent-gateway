@@ -20,6 +20,8 @@ from registry.discovery import (
 )
 from registry.models import AgentSpec, AgentsFile
 from security import security_manager
+from observability.errors import error_recorder
+from api.metrics import metrics
 
 
 def _slugify(value: str) -> str:
@@ -285,6 +287,17 @@ class AgentRegistry:
                 kind=kind,  # type: ignore[arg-type]
                 severity=severity,  # type: ignore[arg-type]
             )
+        )
+        metrics.record_dropin_failure(kind=f"discovery_{kind}")
+        error_recorder.record(
+            event="agent_discovery",
+            message=message,
+            details={
+                "module": export.import_path,
+                "file": str(export.file_path),
+                "kind": kind,
+                "severity": severity,
+            },
         )
 
     def list_discovery_diagnostics(self) -> Iterable[DiscoveryDiagnostic]:

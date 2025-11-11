@@ -25,6 +25,10 @@ default:
     - "agents_pkg.*"
   dropin_module_denylist:
     - "forbidden.*"
+  namespace_defaults:
+    beta:
+      allow_agents:
+        - "beta/*"
 
 api_keys:
   - id: test
@@ -52,6 +56,8 @@ def test_authenticate_and_acl(security_manager_tmp: SecurityManager) -> None:
     assert ctx.is_agent_allowed("alpha/demo")
     assert ctx.is_agent_allowed("beta/agent")
     assert not ctx.is_agent_allowed("gamma/x")
+    # Namespace default grants beta namespace even if key omits entry
+    assert ctx.is_agent_allowed("beta/other")
 
 
 def test_rate_limit_exceeded(security_manager_tmp: SecurityManager) -> None:
@@ -75,3 +81,26 @@ def test_agent_module_allowlist(security_manager_tmp: SecurityManager) -> None:
     # Denied module pattern
     with pytest.raises(PermissionError):
         security_manager_tmp.assert_agent_module_allowed("forbidden.module:agent")
+
+
+def test_agent_override_and_preview(security_manager_tmp: SecurityManager) -> None:
+    ctx = security_manager_tmp.authenticate("super-secret")
+    assert not ctx.is_agent_allowed("gamma/temporary")
+
+    # Preview should reflect deny before override
+    preview = security_manager_tmp.preview_agent("gamma/temporary")
+    assert preview["allowed"] is False
+
+    override = security_manager_tmp.add_agent_override("gamma/temporary", ttl_seconds=1, reason="test")
+    assert override["pattern"] == "gamma/temporary"
+
+    ctx_after_override = security_manager_tmp.authenticate("super-secret")
+    assert ctx_after_override.is_agent_allowed("gamma/temporary")
+
+    preview_after = security_manager_tmp.preview_agent("gamma/temporary")
+    assert preview_after["allowed"] is True
+    assert preview_after["override"] is not None
+
+    sleep(1.1)
+    ctx_after_expiry = security_manager_tmp.authenticate("super-secret")
+    assert not ctx_after_expiry.is_agent_allowed("gamma/temporary")

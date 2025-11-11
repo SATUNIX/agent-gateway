@@ -34,6 +34,7 @@ def test_local_tool_invocation(tool_manager: ToolManager) -> None:
         request_id="req-123",
         policy=ExecutionPolicy(max_tool_hops=1),
         user="tester",
+        source="declarative",
     )
     output = tool_manager.invoke_tool(
         "local_test",
@@ -49,6 +50,7 @@ def test_unknown_tool(tool_manager: ToolManager) -> None:
         request_id="req-123",
         policy=ExecutionPolicy(),
         user=None,
+        source="declarative",
     )
     with pytest.raises(Exception):
         tool_manager.invoke_tool("missing", {}, context)
@@ -60,6 +62,7 @@ def test_schema_validation(tool_manager: ToolManager) -> None:
         request_id="req-456",
         policy=ExecutionPolicy(),
         user=None,
+        source="declarative",
     )
     with pytest.raises(ToolExecutionError):
         tool_manager.invoke_tool("local_test", {"max_words": 5}, context)

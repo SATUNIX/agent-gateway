@@ -123,7 +123,24 @@ Agents should inspect these Pydantic models to understand validation rules and c
   - `pyyaml`, `pydantic` — Config parsing + validation.
   - `prometheus-client` — Metrics exposure.
   - `ruff`, `pytest`, `pytest-cov` — Dev tooling.
-- **Tool adapters:** See `src/tooling/manager.py` (local python), `src/tooling/mcp_client.py` (MCP over HTTP/SSE), plus sample `sdk_adapter/gateway_tools.py` helper for SDK agents.
+- **Tool adapters:** See `src/tooling/manager.py` (local python), `src/tooling/mcp_client.py` (MCP over HTTP/SSE), plus the `use_gateway_tool()` helper in `sdk_adapter/gateway_tools.py` so SDK agents can reuse gateway-managed tools alongside native `@function_tool`s.
+
+Example combo:
+
+```python
+from agents import Agent, function_tool
+from sdk_adapter.gateway_tools import use_gateway_tool
+
+@function_tool
+def summarize(text: str) -> str:
+    return text[:100] + "..."
+
+agent = Agent(
+    name="SampleAgent",
+    instructions="Summarize locally, call http_echo via the gateway when debugging.",
+    tools=[summarize, use_gateway_tool("http_echo")],
+)
+```
 
 ---
 
