@@ -19,7 +19,7 @@ router = APIRouter(tags=["admin"], dependencies=[Depends(enforce_api_key)])
 
 @router.get("/agents", response_model=List[AgentInfo], summary="List available agents")
 async def list_agents() -> List[AgentInfo]:
-    agents = []
+    agents: List[AgentInfo] = []
     for agent in agent_registry.list_agents():
         agents.append(
             AgentInfo(
@@ -33,6 +33,32 @@ async def list_agents() -> List[AgentInfo]:
                 description=agent.description,
                 tools=agent.tools,
                 metadata=agent.metadata,
+                status=agent.metadata.get("discovery_status", "available"),
+                error=agent.metadata.get("discovery_error"),
+            )
+        )
+    for diag in agent_registry.list_discovery_diagnostics():
+        diag_name = diag.file_path.stem or "unknown"
+        agents.append(
+            AgentInfo(
+                name=f"diagnostic::{diag_name}",
+                namespace="diagnostics",
+                qualified_name=f"diagnostics/{diag_name}",
+                display_name=f"Diagnostic {diag_name}",
+                kind="diagnostic",
+                model="-",
+                upstream="-",
+                description=diag.message,
+                tools=[],
+                metadata={
+                    "file_path": str(diag.file_path),
+                    "module": diag.module,
+                    "severity": diag.severity,
+                    "kind": diag.kind,
+                    "occurred_at": int(diag.occurred_at),
+                },
+                status="error" if diag.severity == "error" else diag.severity,
+                error=diag.message,
             )
         )
     return agents

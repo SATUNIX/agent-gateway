@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class AgentInfo(BaseModel):
@@ -18,6 +18,8 @@ class AgentInfo(BaseModel):
     description: str
     tools: List[str]
     metadata: Dict[str, Any]
+    status: str = Field(default="available")
+    error: Optional[str] = None
 
 
 class UpstreamInfo(BaseModel):

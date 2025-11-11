@@ -11,7 +11,13 @@ from typing import Any, Dict, Iterable, Optional
 import yaml
 
 from config import get_settings
-from registry.discovery import AgentDiscoverer, DiscoveredAgentExport
+from registry.discovery import (
+    AgentDiscoverer,
+    DiscoveredAgentExport,
+    DiscoveryDiagnostic,
+    DiagnosticKind,
+    DiagnosticSeverity,
+)
 from registry.models import AgentSpec, AgentsFile
 from security import security_manager
 
@@ -33,6 +39,7 @@ class AgentRegistry:
         settings = get_settings()
         self._config_path = config_path
         self._auto_reload = auto_reload
+        self._settings = settings
         self._logger = logging.getLogger("agent_gateway.registry")
         self._agents: Dict[str, AgentSpec] = {}
         self._yaml_agents: Dict[str, AgentSpec] = {}
@@ -42,7 +49,12 @@ class AgentRegistry:
         self._last_mtime: float = 0.0
         self._discovery_root = Path(discovery_root or settings.agent_discovery_path).resolve()
         self._discovery_package = discovery_package or settings.agent_discovery_package
-        self._discoverer = AgentDiscoverer(self._discovery_root, self._discovery_package)
+        self._discoverer = AgentDiscoverer(
+            self._discovery_root,
+            self._discovery_package,
+            export_names=settings.agent_export_names,
+        )
+        self._discovery_diagnostics: list[DiscoveryDiagnostic] = []
         self._discovery_mtime: float = 0.0
         self._load(force=True)
         self._refresh_discovery(force=True)
@@ -80,6 +92,7 @@ class AgentRegistry:
 
         with self._lock:
             self._load(force=True)
+            self._refresh_discovery(force=True)
 
     def _auto_reload_if_needed(self) -> None:
         if not self._auto_reload:
@@ -115,11 +128,13 @@ class AgentRegistry:
             if self._dropin_agents:
                 self._dropin_agents = {}
                 self._rebuild_catalog()
+            self._discovery_diagnostics = []
             return
         newest_mtime = self._compute_discovery_mtime()
         if not force and newest_mtime <= self._discovery_mtime:
             return
         exports = self._discoverer.discover()
+        self._discovery_diagnostics = self._discoverer.diagnostics()
         specs: Dict[str, AgentSpec] = {}
         for export in exports:
             spec = self._spec_from_export(export)
@@ -153,13 +168,27 @@ class AgentRegistry:
     def _spec_from_export(self, export: DiscoveredAgentExport) -> AgentSpec | None:
         if export.attribute is None and export.kind == "module":
             return None
-        default_namespace = self._defaults.get("namespace", "default")
-        default_upstream = self._defaults.get("upstream")
-        default_model = self._defaults.get("model")
-        if not default_upstream or not default_model:
+        default_namespace = self._defaults.get("namespace") or self._settings.agent_default_namespace
+        default_upstream = self._defaults.get("upstream") or self._settings.agent_default_upstream
+        default_model = self._defaults.get("model") or self._settings.agent_default_model
+
+        gateway_meta = export.module_metadata or {}
+        namespace_override = gateway_meta.get("namespace") or default_namespace or "default"
+        upstream_override = gateway_meta.get("upstream") or default_upstream
+        model_override = gateway_meta.get("model") or default_model
+
+        if not upstream_override or not model_override:
+            self._record_diagnostic(
+                export,
+                message="No upstream/model defaults configured for drop-in agent.",
+                kind="validation",
+            )
             return None
-        namespace, name = self._derive_identity(export, default_namespace)
+
+        namespace, name = self._derive_identity(export, namespace_override)
         display_name = name.replace("-", " ").title()
+        if gateway_meta.get("display_name"):
+            display_name = gateway_meta["display_name"]
         module_path = export.import_path
         if ":" not in module_path and export.attribute:
             module_path = f"{export.module_path}:{export.attribute}"
@@ -174,17 +203,26 @@ class AgentRegistry:
             "import_path": export.import_path,
             "source_file": str(export.file_path),
             "discovered_at": created,
+            "discovery_hash": export.file_hash,
+            "discovery_mtime": export.modified_time,
+            "requirements_file": str(export.requirements_file) if export.requirements_file else None,
+            "discovery_status": "available",
+            "gateway_overrides": gateway_meta,
         }
-        if not self._is_module_allowed(module_path):
+        description = export.docstring or ""
+        if gateway_meta.get("description"):
+            description = gateway_meta["description"]
+
+        if not self._is_module_allowed(export, module_path):
             return None
         return AgentSpec(
             name=name,
             namespace=namespace,
             display_name=display_name,
-            description=export.docstring or "",
+            description=description,
             kind="sdk",
-            upstream=default_upstream,
-            model=default_model,
+            upstream=upstream_override,
+            model=model_override,
             instructions=None,
             module=module_path,
             tools=[],
@@ -192,7 +230,7 @@ class AgentRegistry:
         )
 
     def _derive_identity(
-        self, export: DiscoveredAgentExport, default_namespace: str
+        self, export: DiscoveredAgentExport, fallback_namespace: str
     ) -> tuple[str, str]:
         try:
             relative = export.file_path.parent.relative_to(self._discovery_root)
@@ -200,10 +238,10 @@ class AgentRegistry:
         except ValueError:
             parts = []
         if not parts:
-            namespace = default_namespace
+            namespace = fallback_namespace
             base_name = export.attribute or export.module.split(".")[-1]
         elif len(parts) == 1:
-            namespace = default_namespace
+            namespace = fallback_namespace
             base_name = parts[0]
         else:
             namespace = parts[0]
@@ -212,7 +250,7 @@ class AgentRegistry:
             base_name = f"{base_name}-{export.attribute}"
         return namespace, _slugify(base_name)
 
-    def _is_module_allowed(self, module_path: str) -> bool:
+    def _is_module_allowed(self, export: DiscoveredAgentExport, module_path: str) -> bool:
         try:
             security_manager.assert_agent_module_allowed(module_path)
             return True
@@ -224,7 +262,34 @@ class AgentRegistry:
                     "reason": str(exc),
                 }
             )
+            self._record_diagnostic(
+                export,
+                message=str(exc),
+                kind="security",
+            )
             return False
+
+    def _record_diagnostic(
+        self,
+        export: DiscoveredAgentExport,
+        *,
+        message: str,
+        kind: DiagnosticKind,
+        severity: DiagnosticSeverity = "error",
+    ) -> None:
+        self._discovery_diagnostics.append(
+            DiscoveryDiagnostic(
+                file_path=export.file_path,
+                module=export.import_path,
+                message=message,
+                kind=kind,  # type: ignore[arg-type]
+                severity=severity,  # type: ignore[arg-type]
+            )
+        )
+
+    def list_discovery_diagnostics(self) -> Iterable[DiscoveryDiagnostic]:
+        self._refresh_discovery()
+        return list(self._discovery_diagnostics)
 
 
 agent_registry = AgentRegistry.from_settings()

@@ -72,6 +72,19 @@ class Settings(BaseModel):
     prometheus_enabled: bool = Field(
         default=False, description="Expose Prometheus metrics endpoint"
     )
+    agent_export_names: List[str] = Field(
+        default_factory=lambda: ["agent", "build_agent"],
+        description="Attribute names inspected during drop-in discovery",
+    )
+    agent_default_namespace: str = Field(
+        default="default", description="Fallback namespace for drop-in agents"
+    )
+    agent_default_upstream: str | None = Field(
+        default=None, description="Fallback upstream when YAML defaults missing"
+    )
+    agent_default_model: str | None = Field(
+        default=None, description="Fallback model when YAML defaults missing"
+    )
 
 
 @lru_cache(maxsize=1)
@@ -87,6 +100,11 @@ def get_settings() -> Settings:
     tool_auto_reload = _env_bool(os.getenv("GATEWAY_TOOL_AUTO_RELOAD"), False)
 
     prometheus_enabled = _env_bool(os.getenv("GATEWAY_PROMETHEUS_ENABLED"), False)
+
+    export_names_env = os.getenv("GATEWAY_AGENT_EXPORTS")
+    agent_export_names = (
+        _split_csv(export_names_env) if export_names_env else ["agent", "build_agent"]
+    )
 
     return Settings(
         project_name=os.getenv("GATEWAY_PROJECT_NAME", "Agent Gateway"),
@@ -114,4 +132,8 @@ def get_settings() -> Settings:
         ),
         log_level=os.getenv("GATEWAY_LOG_LEVEL", "INFO"),
         prometheus_enabled=prometheus_enabled,
+        agent_export_names=agent_export_names,
+        agent_default_namespace=os.getenv("GATEWAY_DEFAULT_NAMESPACE", "default"),
+        agent_default_upstream=os.getenv("GATEWAY_DEFAULT_UPSTREAM"),
+        agent_default_model=os.getenv("GATEWAY_DEFAULT_MODEL"),
     )
