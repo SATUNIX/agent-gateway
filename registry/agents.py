@@ -1,0 +1,230 @@
+"""Agent registry implementation with hot-reload support."""
+
+from __future__ import annotations
+
+import logging
+import threading
+import time
+from pathlib import Path
+from typing import Any, Dict, Iterable, Optional
+
+import yaml
+
+from config import get_settings
+from registry.discovery import AgentDiscoverer, DiscoveredAgentExport
+from registry.models import AgentSpec, AgentsFile
+from security import security_manager
+
+
+def _slugify(value: str) -> str:
+    return "".join(ch if ch.isalnum() or ch in {"-", "_"} else "-" for ch in value).strip("-") or "agent"
+
+
+class AgentRegistry:
+    """Loads and tracks agent definitions from a YAML file."""
+
+    def __init__(
+        self,
+        config_path: Path,
+        auto_reload: bool = False,
+        discovery_root: Path | None = None,
+        discovery_package: str | None = None,
+    ) -> None:
+        settings = get_settings()
+        self._config_path = config_path
+        self._auto_reload = auto_reload
+        self._logger = logging.getLogger("agent_gateway.registry")
+        self._agents: Dict[str, AgentSpec] = {}
+        self._yaml_agents: Dict[str, AgentSpec] = {}
+        self._dropin_agents: Dict[str, AgentSpec] = {}
+        self._defaults: Dict[str, Any] = {}
+        self._lock = threading.RLock()
+        self._last_mtime: float = 0.0
+        self._discovery_root = Path(discovery_root or settings.agent_discovery_path).resolve()
+        self._discovery_package = discovery_package or settings.agent_discovery_package
+        self._discoverer = AgentDiscoverer(self._discovery_root, self._discovery_package)
+        self._discovery_mtime: float = 0.0
+        self._load(force=True)
+        self._refresh_discovery(force=True)
+
+    @classmethod
+    def from_settings(cls) -> "AgentRegistry":
+        settings = get_settings()
+        config_path = Path(settings.agent_config_path).resolve()
+        auto_reload = settings.agent_auto_reload
+        discovery_root = Path(settings.agent_discovery_path).resolve()
+        return cls(
+            config_path=config_path,
+            auto_reload=auto_reload,
+            discovery_root=discovery_root,
+            discovery_package=settings.agent_discovery_package,
+        )
+
+    def list_agents(self) -> Iterable[AgentSpec]:
+        self._auto_reload_if_needed()
+        self._refresh_discovery()
+        return sorted(self._agents.values(), key=lambda agent: agent.qualified_name)
+
+    def get_agent(self, name: str) -> Optional[AgentSpec]:
+        self._auto_reload_if_needed()
+        self._refresh_discovery()
+        if "/" in name:
+            return self._agents.get(name)
+        matches = [agent for agent in self._agents.values() if agent.name == name]
+        if len(matches) == 1:
+            return matches[0]
+        return None
+
+    def refresh(self) -> None:
+        """Force a reload of the configuration file."""
+
+        with self._lock:
+            self._load(force=True)
+
+    def _auto_reload_if_needed(self) -> None:
+        if not self._auto_reload:
+            return
+        try:
+            current_mtime = self._config_path.stat().st_mtime
+        except FileNotFoundError:
+            return
+        if current_mtime <= self._last_mtime:
+            return
+        with self._lock:
+            self._load(force=True)
+
+    def _load(self, force: bool = False) -> None:
+        path = self._config_path
+        if not path.exists():
+            raise FileNotFoundError(f"Agent configuration file not found: {path}")
+        mtime = path.stat().st_mtime
+        if not force and mtime <= self._last_mtime:
+            return
+        raw = path.read_text(encoding="utf-8")
+        data = yaml.safe_load(raw) or {}
+        parsed = AgentsFile(**data)
+        agents = {agent.qualified_name: agent for agent in parsed.agents}
+        self._yaml_agents = agents
+        self._defaults = parsed.defaults or {}
+        self._last_mtime = mtime
+        self._rebuild_catalog()
+
+    def _refresh_discovery(self, force: bool = False) -> None:
+        root = self._discovery_root
+        if not root.exists():
+            if self._dropin_agents:
+                self._dropin_agents = {}
+                self._rebuild_catalog()
+            return
+        newest_mtime = self._compute_discovery_mtime()
+        if not force and newest_mtime <= self._discovery_mtime:
+            return
+        exports = self._discoverer.discover()
+        specs: Dict[str, AgentSpec] = {}
+        for export in exports:
+            spec = self._spec_from_export(export)
+            if spec is None:
+                continue
+            specs[spec.qualified_name] = spec
+        self._dropin_agents = specs
+        self._discovery_mtime = newest_mtime
+        self._rebuild_catalog()
+
+    def _rebuild_catalog(self) -> None:
+        catalog = dict(self._yaml_agents)
+        for key, spec in self._dropin_agents.items():
+            if key in catalog:
+                continue
+            catalog[key] = spec
+        self._agents = catalog
+
+    def _compute_discovery_mtime(self) -> float:
+        try:
+            newest = self._discovery_root.stat().st_mtime
+        except FileNotFoundError:
+            return 0.0
+        for path in self._discovery_root.rglob("*"):
+            try:
+                newest = max(newest, path.stat().st_mtime)
+            except FileNotFoundError:
+                continue
+        return newest
+
+    def _spec_from_export(self, export: DiscoveredAgentExport) -> AgentSpec | None:
+        if export.attribute is None and export.kind == "module":
+            return None
+        default_namespace = self._defaults.get("namespace", "default")
+        default_upstream = self._defaults.get("upstream")
+        default_model = self._defaults.get("model")
+        if not default_upstream or not default_model:
+            return None
+        namespace, name = self._derive_identity(export, default_namespace)
+        display_name = name.replace("-", " ").title()
+        module_path = export.import_path
+        if ":" not in module_path and export.attribute:
+            module_path = f"{export.module_path}:{export.attribute}"
+        try:
+            created = int(export.file_path.stat().st_mtime)
+        except FileNotFoundError:
+            created = int(time.time())
+
+        metadata = {
+            "dropin": True,
+            "export_kind": export.kind,
+            "import_path": export.import_path,
+            "source_file": str(export.file_path),
+            "discovered_at": created,
+        }
+        if not self._is_module_allowed(module_path):
+            return None
+        return AgentSpec(
+            name=name,
+            namespace=namespace,
+            display_name=display_name,
+            description=export.docstring or "",
+            kind="sdk",
+            upstream=default_upstream,
+            model=default_model,
+            instructions=None,
+            module=module_path,
+            tools=[],
+            metadata=metadata,
+        )
+
+    def _derive_identity(
+        self, export: DiscoveredAgentExport, default_namespace: str
+    ) -> tuple[str, str]:
+        try:
+            relative = export.file_path.parent.relative_to(self._discovery_root)
+            parts = list(relative.parts)
+        except ValueError:
+            parts = []
+        if not parts:
+            namespace = default_namespace
+            base_name = export.attribute or export.module.split(".")[-1]
+        elif len(parts) == 1:
+            namespace = default_namespace
+            base_name = parts[0]
+        else:
+            namespace = parts[0]
+            base_name = parts[-1]
+        if export.attribute and export.attribute not in {"agent", base_name}:
+            base_name = f"{base_name}-{export.attribute}"
+        return namespace, _slugify(base_name)
+
+    def _is_module_allowed(self, module_path: str) -> bool:
+        try:
+            security_manager.assert_agent_module_allowed(module_path)
+            return True
+        except PermissionError as exc:
+            self._logger.warning(
+                {
+                    "event": "agent.dropin.blocked",
+                    "module": module_path,
+                    "reason": str(exc),
+                }
+            )
+            return False
+
+
+agent_registry = AgentRegistry.from_settings()

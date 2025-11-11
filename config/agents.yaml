@@ -1,0 +1,29 @@
+version: 1
+defaults:
+  namespace: default
+  upstream: lmstudio
+  model: gpt-4o-mini
+
+agents:
+  - name: assistant
+    display_name: General Assistant
+    description: Concise helper with access to weather MCP tools.
+    kind: declarative
+    instructions: |
+      You are a concise and helpful assistant that summarizes information clearly.
+    tools:
+      - get_weather
+    metadata:
+      max_tool_hops: 2
+
+  - name: researcher
+    namespace: research
+    display_name: Deep Researcher
+    description: SDK-driven researcher that calls external workflows.
+    kind: sdk
+    module: agents.sdk_example:build_agent
+    tools:
+      - web_search
+      - browse_web
+    metadata:
+      max_tool_hops: 4

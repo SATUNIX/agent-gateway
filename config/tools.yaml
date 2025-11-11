@@ -1,0 +1,25 @@
+version: 1
+tools:
+  - name: summarize_text
+    provider: local
+    module: tooling.local_tools:summarize_text
+    schema:
+      required: ["text"]
+      properties:
+        text:
+          type: string
+        max_words:
+          type: integer
+
+  - name: http_echo
+    provider: http
+    method: POST
+    url: https://httpbin.org/post
+    timeout: 5
+
+  - name: weather_lookup
+    provider: mcp
+    url: https://mcp.example.com/weather
+    method: current
+    timeout: 10
+    stream: true

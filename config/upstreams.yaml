@@ -1,0 +1,18 @@
+version: 1
+upstreams:
+  - name: lmstudio
+    provider: openai-compatible
+    base_url: http://localhost:1234/v1
+    priority: 1
+    api_key: not-needed
+    health_path: /models
+    health_timeout: 3
+
+  - name: openai
+    provider: openai
+    base_url: https://api.openai.com/v1
+    priority: 2
+    api_key_env: OPENAI_API_KEY
+    health_path: /models
+    health_timeout: 5
+

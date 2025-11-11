@@ -1,0 +1,207 @@
+# Agent Gateway – Final Design Specification
+
+## Overview
+
+**Purpose:** Create a modular, OpenAI-compatible Agent Gateway that connects a chat UI (e.g., Open WebUI) with a local inference backend (e.g., LM Studio). It enables users to define, run, and extend custom OpenAI-style agents with tools, MCP integrations, and workflows while maintaining full OpenAI API compatibility.
+
+---
+
+## Core Objectives
+
+1. Act as an **OpenAI-compatible proxy** between the chat UI and LM Studio (or other OpenAI-like endpoints).
+2. Support both **declarative agents** (YAML/JSON specs) and **code-based agents** using the **OpenAI Agents SDK**.
+3. Enable easy integration with **MCP tool servers**, local tools, and HTTP-based extensions.
+4. Let users expose custom agents to the UI as if they were regular models.
+5. Maintain modular, pluggable architecture supporting rapid expansion (new tools, upstreams, storage, etc.).
+
+---
+
+## Architecture Summary
+
+```
+[Chat UI / Open WebUI]
+        |
+        v
+[Agent Gateway API Layer]
+        |
+        +--> Agent Resolver (YAML/SDK)
+        +--> Agent Executor (chat + tool loop)
+        +--> Tool / MCP Manager
+        +--> Upstream Registry (LM Studio, OpenAI, etc.)
+        +--> Session Store (in-memory / Redis)
+        v
+[Local LLM / LM Studio]
+```
+
+---
+
+## Key Components
+
+### 1. API Layer (FastAPI)
+
+* Implements `/v1/chat/completions` endpoint (OpenAI-compatible).
+* Adds management endpoints (`/agents`, `/mcp/servers`, `/metrics`).
+* Handles CORS, streaming, and gateway authentication.
+
+### 2. Agent Registry
+
+* Loads and manages **YAML/JSON agents** and **SDK-defined agents**.
+* Supports hot-reload and namespacing.
+* Abstract interface for consistent access.
+
+### 3. Agent Executor
+
+* Builds message context (system + history + input).
+* Detects SDK vs. declarative agents.
+* Manages full agent loop (LLM → tool → LLM).
+* Enforces policies (max hops, tokens, etc.).
+
+### 4. SDK Adapter
+
+* Allows code-defined agents (OpenAI Agents SDK) to be imported dynamically.
+* Injects LM Studio-compatible OpenAI client.
+* Executes agent.run() / agent.run_sync() methods and converts results to OpenAI schema.
+
+### 5. Tool / MCP Manager
+
+* Central layer for all tool invocations.
+* Supports providers: MCP, HTTP, LocalPython.
+* Manages persistent connections to MCP servers (SSE/HTTP).
+
+### 6. Upstream Registry
+
+* Maintains OpenAI client instances for each backend (LM Studio, OpenAI, Ollama, etc.).
+* Allows per-agent upstream configuration.
+
+### 7. Session Store
+
+* Optional conversation persistence.
+* Tracks message history and tool outputs.
+* Can use in-memory or Redis.
+
+### 8. Observability & Logging
+
+* Unified logging middleware for:
+
+  * Requests and responses.
+  * Tool usage metrics.
+  * LLM latency.
+* Optional Prometheus metrics endpoint.
+
+### 9. Security Layer
+
+* Simple API key for gateway authentication.
+* Per-agent access control.
+* Rate limiting and sandboxed tool execution.
+
+### 10. Configuration Format (YAML Example)
+
+```yaml
+upstreams:
+  lmstudio:
+    base_url: "http://localhost:1234/v1"
+    api_key: "not-needed"
+
+mcp_servers:
+  weather:
+    transport: http
+    url: "https://mcp.example.com/weather"
+
+agents:
+  - name: "Assistant"
+    kind: "declarative"
+    upstream: "lmstudio"
+    model: "gpt-4o-mini"
+    instructions: |
+      You are a concise and helpful assistant.
+    tools:
+      - name: "get_weather"
+        provider: "mcp"
+        mcp_server: "weather"
+        mcp_method: "current"
+    policies:
+      max_tool_hops: 2
+
+  - name: "Researcher"
+    kind: "sdk"
+    module: "agents.researcher:build_agent"
+    upstream: "lmstudio"
+    model: "gpt-4o-mini"
+```
+
+---
+
+## Ten-Step Development Plan
+
+### **Step 1 – Scaffold Project**
+
+* Initialize Python project with FastAPI, OpenAI SDK, pyyaml, and uvicorn.
+* Set up directories: `api/`, `agents/`, `registry/`, `tooling/`, `sdk_adapter/`, `config/`.
+
+### **Step 2 – Build API Layer**
+
+* Implement `/v1/chat/completions` endpoint.
+* Support standard and streaming responses.
+* Add admin endpoints for `/agents` and `/upstreams`.
+
+### **Step 3 – Implement Agent Registry**
+
+* Parse YAML/JSON config.
+* Support both declarative and SDK-based agents.
+* Add auto-reload option for development.
+
+### **Step 4 – Implement Upstream Registry**
+
+* Manage named OpenAI client connections.
+* Validate upstreams on load.
+* Support environment variable injection for secrets.
+
+### **Step 5 – Build Agent Executor**
+
+* Implement single-turn and multi-turn LLM execution.
+* Handle tool calls and recursive re-querying.
+* Normalize outputs to OpenAI response shape.
+
+### **Step 6 – Add SDK Adapter**
+
+* Import and run Python-defined agents from OpenAI Agents SDK.
+* Inject LM Studio-compatible OpenAI client.
+* Capture agent.run() results for the API layer.
+
+### **Step 7 – Integrate Tool / MCP Manager**
+
+* Implement MCP client per the latest spec (HTTP/SSE).
+* Add LocalPython and HTTP tool providers.
+* Standardize tool-call → result flow.
+
+### **Step 8 – Add Observability**
+
+* Log every call (agent, model, latency, tool usage).
+* Add optional Prometheus metrics.
+* Include structured JSON logs.
+
+### **Step 9 – Implement Security Layer**
+
+* Add API key validation.
+* Add per-agent allowlists.
+* Implement simple rate limiting.
+
+### **Step 10 – Testing & Packaging**
+
+* Unit tests for each module.
+* Integration test simulating Open WebUI → Gateway → LM Studio.
+* Build Dockerfile for deployment.
+
+---
+
+## Future Extensions
+
+* Multi-agent collaboration graphs.
+* Persistent vector-memory storage.
+* Web dashboard for agent monitoring.
+* MCP auto-discovery for local tool servers.
+* WebSocket-based bi-directional streaming for UI feedback.
+
+---
+
+**Result:** A modular, extensible, and production-ready OpenAI Agent Gateway that acts as the middle layer between any chat interface and local or cloud-based inference backends, fully compatible with the OpenAI Agents SDK and MCP ecosystems.

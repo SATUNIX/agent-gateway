@@ -1,0 +1,20 @@
+version: 1
+default:
+  allow_agents:
+    - "*"
+  rate_limit:
+    per_minute: 60
+  local_tools_allowlist:
+    - "tooling.local_tools:*"
+  dropin_module_allowlist:
+    - "*"
+  dropin_module_denylist: []
+
+api_keys:
+  - id: "dev"
+    key: "dev-secret"
+    description: "Local development key"
+    allow_agents:
+      - "*"
+    rate_limit:
+      per_minute: 120
