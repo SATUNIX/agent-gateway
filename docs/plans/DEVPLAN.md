@@ -4,86 +4,50 @@ Goal: Any engineer can drop an OpenAI Agents SDK module (e.g., `src/agents/Sampl
 
 ---
 
-## 1. Discovery & Registry Resilience ✅
-- **Problem:** `src/registry/discovery.py` only considers hard-coded export names and swallows import errors; `src/registry/agents.py` silently drops agents.
-- **Work:**  
-  - Allow configurable export names (default `agent`, `build_agent`, etc.) via `GATEWAY_AGENT_EXPORTS`.  
-  - Capture import failures (missing deps, syntax errors) with structured diagnostics stored in memory and surfaced via `/admin/agents`.  
-  - Persist module hash + mtime to avoid redundant re-imports when unchanged.
-- **Acceptance:** Dropping SampleAgent registers automatically, and `/admin/agents` reports success/errors per file.
 
-## 2. Automatic Defaults & Per-Agent Overrides ✅
-- **Problem:** Agents require `defaults.upstream/model` in YAML; no in-code overrides.
-- **Work:**  
-  - Update `src/config/settings.py` + `src/registry/models.py` to provide safe defaults (fallback to `default` namespace + configured upstream).  
-  - Support optional `__gateway__ = {"model": "...", "upstream": "..."}` metadata inside agent modules for per-agent overrides.  
-  - Log validation issues instead of silently skipping agents.
-- **Acceptance:** Example SampleAgent works with zero YAML; overrides show in `/v1/models`.
+## 4. Security Policy Flexibility (Breakdown)
+1. **4.1 Config Schema & Manager Support** – Extend `security/models.py` and `security/manager.py` to support per-namespace defaults plus in-memory override slots (TTL-based). Ensure `AuthContext` checks namespace defaults before global patterns.  
+2. **4.2 Admin Preview/Override APIs** – Add `/security/preview` (dry-run evaluation) and `/security/override` (temporary allowlist entry) in `src/api/routes/admin.py`, persisting overrides inside the security manager.  
+3. **4.3 Audit Logging & Docs** – Emit structured logs for every allow/deny decision (`agent.security.decision`) and document the workflow + override lifecycle in `docs/guides/OperatorRunbook.md`.
 
-## 3. Dependency Awareness & Installer Hooks ✅
-- **Problem:** Missing `openai-agents` or agent-specific deps cause opaque failures.
-- **Work:**  
-  - Allow optional `requirements.txt` next to each agent module and detect missing wheels during discovery.  
-  - Add CLI (`scripts/install_agent_deps.py`) plus documentation to bulk-install agent dependencies.  
-  - Emit actionable errors when deps are missing.
-- **Acceptance:** If Spark’s folder declares deps, `POST /agents/refresh` warns and helper script installs them.
+## 5. Tooling Bridge & Metrics (Breakdown)
+1. **5.1 Gateway Tool Shim Enhancements** – Update `src/sdk_adapter/gateway_tools.py` to auto-discover gateway-managed tools, cache wrappers per tool name, and expose an ergonomic `use_gateway_tool("name")` helper.  
+2. **5.2 Tool Manager Provenance & Metrics** – Tag every tool invocation in `src/tooling/manager.py` with a `source` field (sdk-native vs gateway) and export Prometheus counters/timers for each.  
+3. **5.3 Developer Examples** – Add SampleAgent snippets (docs + `examples/agents/Spark`) showing simultaneous use of native `@function_tool` and `gateway_tool`, updating README/AGENTS guidance.
 
-## 4. Security Policy Flexibility
-- **Problem:** `src/security/security.yaml` allowlists are coarse; adding agents requires file edits and reloads.
-- **Work:**  
-  - Introduce per-namespace defaults and short-lived overrides exposed via `/security/preview` and `/security/override`.  
-  - Log every allow/deny decision with agent path + policy reason.  
-  - Document workflow in `docs/guides/OperatorRunbook.md`.
-- **Acceptance:** Operators can temporarily permit SampleAgent without redeploying, and logs capture decisions.
+## 6. Structured Error Reporting & Observability (Breakdown)
+1. **6.1 Middleware Context Enrichment** – Enhance `RequestLoggingMiddleware` and `observability/logging.py` to attach `agent_id`, `module_path`, `error_stage`, and correlation IDs to every log/event.  
+2. **6.2 Admin Errors Endpoint** – Introduce `/admin/agents/errors` powered by a ring buffer capturing recent discovery/runtime failures (ties into diagnostics already emitted by the registry/security manager).  
+3. **6.3 Metrics for Drop-In Failures** – Add Prometheus counters/gauges for import failures, blocked modules, tool violations, and expose them via existing metrics endpoints.
 
-## 5. Tooling Bridge & Metrics
-- **Problem:** SDK tools must be decorated and can’t easily reuse gateway-managed tools.
-- **Work:**  
-  - Expand `src/sdk_adapter/gateway_tools.py` to auto-register gateway tools for SDK agents (with caching + metrics).  
-  - Ensure `src/tooling/manager.py` records tool provenance (SDK vs gateway).  
-  - Provide docs + SampleAgent snippet showing both native and gateway tools.
-- **Acceptance:** SampleAgent can call local `@function_tool`s plus `gateway_tool("fetch_doc")` seamlessly with telemetry.
+## 7. Hot Reload & Watch Mode (Breakdown)
+1. **7.1 Watchfiles Integration** – Add optional `watchfiles` dependency and `GATEWAY_AGENT_WATCH` setting; wire a background task that monitors `src/agents/**` and triggers targeted reloads.  
+2. **7.2 Incremental Cache Refresh** – Reuse discovery hashes to reload only changed folders, avoiding full rescans when watch mode is active.  
+3. **7.3 Dev UX & Docs** – Document watch-mode usage (env vars, limitations) in README + OperatorRunbook; ensure graceful fallback when dependency is absent.
 
-## 6. Structured Error Reporting & Observability
-- **Problem:** 502 errors hide root causes; logs lack context.
-- **Work:**  
-  - Enhance `RequestLoggingMiddleware` (src/api/middleware.py) and `src/observability/logging.py` to attach `agent_id`, `module_path`, `error_stage`.  
-  - Add `/admin/agents/errors` endpoint summarizing recent discovery/runtime issues.  
-  - Emit Prometheus counters for drop-in import failures and tool violations.
-- **Acceptance:** When SampleAgent has a typo, admin endpoints clearly show the reason without reproducing locally.
+## 8. Drop-In Acceptance Suite (Breakdown)
+1. **8.1 Fixture Materialization** – Convert SampleAgent/Spark/guardrail/handoff snippets into reusable fixtures under `tests/fixtures/dropin_agents` and helper utilities to materialize them under `tmp_path/src/agents`.  
+2. **8.2 API-Level Tests** – Implement real tests in `tests/test_dropin_agents_acceptance.py` that hit `/v1/models` and `/v1/chat/completions` (stream + tools), asserting proper responses and metrics.  
+3. **8.3 CI Integration** – Update `Makefile`/CI workflow to run the acceptance suite (optionally flagged) so regressions fail PRs automatically.
 
-## 7. Hot Reload & Watch Mode
-- **Problem:** `/agents/refresh` rescans synchronously; no auto-watch.
-- **Work:**  
-  - Integrate `watchfiles` (optional dependency) to monitor `src/agents/**` and trigger incremental reloads.  
-  - Cache discovery results by folder to reduce import churn.  
-  - Expose `GATEWAY_AGENT_WATCH=1` env toggle for dev mode.
-- **Acceptance:** Editing SampleAgent triggers reload within seconds; production mode remains manual.
+## 9. Documentation & UX Refresh (Breakdown)
+1. **9.1 Core Guides Refresh** – Rewrite `docs/guides/DropInAgentGuide.md` + `docs/guides/SDKOnboarding.md` to highlight the drop-in UX, dependency helper, and override story.  
+2. **9.2 Quickstart & Templates** – Add a copy-paste SampleAgent template to `README.md` / `AGENTS.md` plus mention of `scripts/install_agent_deps.py`.  
+3. **9.3 Troubleshooting Matrix** – Expand `docs/guides/Troubleshooting.md` and README with a matrix mapping common errors (missing deps, blocked module, override expired) to remediation steps.
 
-## 8. Drop-In Acceptance Suite
-- **Problem:** `tests/test_dropin_agents_acceptance.py` is TODO; no regression protection.
-- **Work:**  
-  - Materialize fixtures (SampleAgent, Spark, guardrails, handoffs) and run them through FastAPI test client to assert `/v1/models`, `/v1/chat/completions` (streaming + tool usage).  
-  - Add targeted tests for dependency errors, security overrides, and gateway-tool bridging.  
-  - Wire into `make test` and CI.
-- **Acceptance:** CI fails on any regression affecting drop-in agents; SampleAgent scenario is covered.
-
-## 9. Documentation & UX Refresh
-- **Problem:** Docs mention old workflows; new features must be discoverable.
-- **Work:**  
-  - Update `docs/guides/DropInAgentGuide.md`, `docs/guides/SDKOnboarding.md`, `docs/README.md`, and `AGENTS.md` with the simplified UX (copy SampleAgent folder, optional metadata, dependency helper).  
-  - Provide copy/paste template mirroring the SampleAgent snippet, including best practices for instructions, tools, and security expectations.  
-  - Add troubleshooting matrix tying errors to plan features.
-- **Acceptance:** A new engineer can follow the guide end-to-end without touching YAML and successfully serve SampleAgent.
-
-## 10. Release & Operational Automation
-- **Problem:** No automated guarantees that drop-in readiness remains intact.
-- **Work:**  
-  - Extend `.github/workflows/ci.yml` (or equivalent) to run lint + acceptance suite + dependency audit (`scripts/nightly_audit.py`).  
-  - Add release checklist referencing security overrides, dependency helper, and doc updates.  
-  - Track metrics (success/fail counts) and surface in `docs/plans/LaunchReadinessReview.md`.
-- **Acceptance:** Releases require green drop-in tests; nightly job alerts on dependency/security issues affecting agents.
+## 10. Release & Operational Automation (Breakdown)
+1. **10.1 CI Pipeline Enhancements** – Modify `.github/workflows/ci.yml` to run lint, unit tests, drop-in acceptance, and nightly dependency audit (reuse `scripts/nightly_audit.py`).  
+2. **10.2 Release Checklist & Metrics** – Document a release checklist in `docs/plans/LaunchReadinessReview.md` covering security overrides, dependency helper, docs sync, and publish success/failure counts.  
+3. **10.3 Automated Alerts** – Emit notifications (log or webhook) when nightly audits or acceptance tests fail, ensuring operators are alerted about drop-in regressions.
 
 ---
 
 Delivering these steps ensures the Agent Gateway meets the target UX: developers simply drop a compliant OpenAI Agents SDK file like the SampleAgent example into `src/agents/<Name>/agent.py`, and the gateway handles discovery, configuration, tooling, observability, and security automatically. By closing the documented gaps and enforcing continuous validation, the platform becomes dependable for production drop-in agents.
+
+Update for Context: 
+I am building this Agent Gateway because I couldnt find a reliable, centralized way to define and serve agents and MAS locally through a self-hosted chat UI. The goal is to make it possible to connect any OpenAI-compatible chat completions UI (local or cloud-based) to a unified backend where you can drop in custom agent logic, tools, and routing configurations (including those created with AgentKit).
+
+In short, this project centralizes agents, tools, and workflows into one cohesive gateway instead of scattering them across multiple UIs and inference providers. I will further integrate and offload tooling to microsofts mcp-gateway so they can be deployed via docker together. 
+
+Agent Gateway is a modular, OpenAI-compatible orchestration service that links your chat UI to both local and cloud LLM backends (OpenAI, LM Studio, Ollama, vLLM) through the OpenAI Agents SDK.
+Drop a standard SDK agent into src/agents/<Name>/agent.py, and the gateway automatically exposes it as a /v1/chat/completions model—complete with dynamic routing, tool management, observability, and security.
