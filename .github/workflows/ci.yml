@@ -26,6 +26,8 @@ jobs:
         run: make test
       - name: Drop-in Acceptance Tests
         run: make test-acceptance
+      - name: Dependency audit
+        run: python scripts/nightly_audit.py
       - name: Build Docker image
         run: make docker-build
 
@@ -43,3 +45,31 @@ jobs:
           pip install -r requirements.txt
       - name: Nightly audit
         run: python scripts/nightly_audit.py
+
+  notify-build:
+    needs: build-test
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Build/Test status
+        run: |
+          if [ "${{ needs.build-test.result }}" = "failure" ]; then
+            echo "::error ::Build/Test job failed. Inspect lint/unit/acceptance logs for drop-in regressions."
+            exit 1
+          else
+            echo "Build/Test job succeeded."
+          fi
+
+  notify-nightly:
+    needs: nightly-audit
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Nightly audit status
+        run: |
+          if [ "${{ needs.nightly-audit.result }}" = "failure" ]; then
+            echo "::error ::Nightly dependency audit failed. Review the audit job output."
+            exit 1
+          else
+            echo "Nightly audit succeeded."
+          fi

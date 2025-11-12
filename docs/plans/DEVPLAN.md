@@ -35,10 +35,10 @@ Goal: Any engineer can drop an OpenAI Agents SDK module (e.g., `src/agents/Sampl
 2. **9.2 Quickstart & Templates** – Completed: README/AGENTS include a copy-paste template plus instructions for `scripts/install_agent_deps.py`.  
 3. **9.3 Troubleshooting Matrix** – Completed: new `docs/guides/Troubleshooting.md` plus an expanded README table map common errors to remediations.
 
-## 10. Release & Operational Automation (Breakdown)
-1. **10.1 CI Pipeline Enhancements** – Modify `.github/workflows/ci.yml` to run lint, unit tests, drop-in acceptance, and nightly dependency audit (reuse `scripts/nightly_audit.py`).  
-2. **10.2 Release Checklist & Metrics** – Document a release checklist in `docs/plans/LaunchReadinessReview.md` covering security overrides, dependency helper, docs sync, and publish success/failure counts.  
-3. **10.3 Automated Alerts** – Emit notifications (log or webhook) when nightly audits or acceptance tests fail, ensuring operators are alerted about drop-in regressions.
+## 10. Release & Operational Automation (Breakdown) ✅
+1. **10.1 CI Pipeline Enhancements** – Completed: `.github/workflows/ci.yml` now runs lint, unit tests, drop-in acceptance, and the dependency audit in the primary job.  
+2. **10.2 Release Checklist & Metrics** – Completed: see `docs/plans/LaunchReadinessReview.md` for the security/dependency/docs checklist.  
+3. **10.3 Automated Alerts** – Completed: notify jobs emit log annotations whenever build/test or nightly audit jobs fail.
 
 ---
 
