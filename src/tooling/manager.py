@@ -116,7 +116,7 @@ class ToolManager:
         try:
             security_manager.assert_tool_allowed(spec.module)
         except PermissionError as exc:
-            metrics.record_dropin_failure(kind="tool_violation", agent=context.agent_name)
+            metrics.record_dropin_failure(kind="tool_violation")
             error_recorder.record(
                 event="tool_violation",
                 message=str(exc),

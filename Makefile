@@ -21,6 +21,9 @@ lint:
 test:
 	PYTHONPATH=$(PYTHONPATH) pytest --maxfail=1 --disable-warnings --cov=api --cov=agents --cov=tooling
 
+test-acceptance:
+	PYTHONPATH=$(PYTHONPATH) pytest tests/test_dropin_agents_acceptance.py
+
 coverage:
 	PYTHONPATH=$(PYTHONPATH) pytest --cov --cov-report=term-missing
 

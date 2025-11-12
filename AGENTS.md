@@ -124,6 +124,7 @@ Agents should inspect these Pydantic models to understand validation rules and c
   - `prometheus-client` — Metrics exposure.
   - `ruff`, `pytest`, `pytest-cov` — Dev tooling.
 - **Tool adapters:** See `src/tooling/manager.py` (local python), `src/tooling/mcp_client.py` (MCP over HTTP/SSE), plus the `use_gateway_tool()` helper in `sdk_adapter/gateway_tools.py` so SDK agents can reuse gateway-managed tools alongside native `@function_tool`s.
+- **Dependency helper:** Run `python scripts/install_agent_deps.py [--agent <Name>]` to install packages declared in `src/agents/<Name>/requirements.txt`.
 
 Example combo:
 

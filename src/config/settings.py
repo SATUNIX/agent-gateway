@@ -85,6 +85,10 @@ class Settings(BaseModel):
     agent_default_model: str | None = Field(
         default=None, description="Fallback model when YAML defaults missing"
     )
+    agent_watch_enabled: bool = Field(
+        default=False,
+        description="Enable filesystem watch mode for drop-in agents (requires watchfiles)",
+    )
 
 
 @lru_cache(maxsize=1)
@@ -136,4 +140,5 @@ def get_settings() -> Settings:
         agent_default_namespace=os.getenv("GATEWAY_DEFAULT_NAMESPACE", "default"),
         agent_default_upstream=os.getenv("GATEWAY_DEFAULT_UPSTREAM"),
         agent_default_model=os.getenv("GATEWAY_DEFAULT_MODEL"),
+        agent_watch_enabled=_env_bool(os.getenv("GATEWAY_AGENT_WATCH"), False),
     )

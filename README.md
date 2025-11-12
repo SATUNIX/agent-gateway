@@ -78,7 +78,8 @@ set PYTHONPATH=%CD%\src
 uvicorn api.main:app --reload
 ```
 
-> 💡 **Tip:** Set `GATEWAY_AGENT_AUTO_RELOAD=1` during development to enable hot-reload for YAML and drop-in modules.
+> 💡 **Tip:** Set `GATEWAY_AGENT_AUTO_RELOAD=1` during development to enable hot-reload for YAML and drop-in modules.  
+> 🔁 **Watch mode:** Install the optional dependency (`pip install "agent-gateway[watch]"` or `pip install watchfiles`) and set `GATEWAY_AGENT_WATCH=1` to automatically reload agents when files under `src/agents/**` change.
 
 ---
 
@@ -144,21 +145,23 @@ See [`docs/guides/DropInAgentGuide.md`](docs/guides/DropInAgentGuide.md) for con
 | `src/config/tools.yaml`     | Registry for gateway-managed tools.                         |
 | `src/config/security.yaml`  | API keys, ACLs, tool/module allow/deny lists.               |
 | `docs/`                     | Contains guides, references, and system docs.               |
+| `docs/guides/OperatorRunbook.md` | Day-2 operations, overrides, troubleshooting.            |
 
 **Environment Variables:**
-`GATEWAY_AGENT_CONFIG`, `GATEWAY_UPSTREAM_CONFIG`, `GATEWAY_SECURITY_CONFIG`, `GATEWAY_AGENT_DISCOVERY_PATH`, `GATEWAY_AGENT_AUTO_RELOAD`, etc.
+`GATEWAY_AGENT_CONFIG`, `GATEWAY_UPSTREAM_CONFIG`, `GATEWAY_SECURITY_CONFIG`, `GATEWAY_AGENT_DISCOVERY_PATH`, `GATEWAY_AGENT_AUTO_RELOAD`, `GATEWAY_AGENT_WATCH` (requires `watchfiles`), etc.
 
 ---
 
 ## 🧰 Troubleshooting
 
-| Issue                            | Resolution                                                                                 |
-| -------------------------------- | ------------------------------------------------------------------------------------------ |
-| Agent not listed in `/v1/models` | Check logs for `agent.dropin.blocked` or import errors. Ensure the module exports `agent`. |
-| 403 Forbidden                    | Tool or module not in `allowlist`. Update `src/config/security.yaml`.                      |
-| Streaming ends early             | Confirm `stream:true` in request payload.                                                  |
-| `PermissionError`                | Ensure `openai-agents` is installed in the active environment.                             |
-| Rate limit (429)                 | Increase `rate_limit.per_minute` or rotate API keys.                                       |
+| Issue | Resolution |
+| --- | --- |
+| Agent not listed in `/v1/models` | Check `/admin/agents/errors` for discovery failures, run `scripts/install_agent_deps.py`, ensure the module exports `agent`. |
+| 403 Forbidden | Use `/security/preview` to inspect decision, apply `/security/override` or update `security.yaml`. |
+| Streaming ends early | Confirm `stream:true`; inspect logs for `sdk_agent.failure`. |
+| Tool invocation denied | Tool not in allowlist; update `src/config/security.yaml` and POST `/security/refresh`. |
+| Watch mode inactive | Install `watchfiles` (`pip install "agent-gateway[watch]"`) and set `GATEWAY_AGENT_WATCH=1`. |
+| Rate limit (429) | Increase `rate_limit.per_minute` or rotate API keys. |
 
 See [`docs/guides/Troubleshooting.md`](docs/guides/Troubleshooting.md) for deeper debugging.
 
@@ -171,6 +174,8 @@ See [`docs/guides/Troubleshooting.md`](docs/guides/Troubleshooting.md) for deepe
 | `make run`                    | Start FastAPI app with reload.            |
 | `make fmt` / `make lint`      | Format and lint code via Ruff.            |
 | `make test` / `make coverage` | Run pytest and generate coverage reports. |
+| `make test-acceptance`        | Execute drop-in acceptance suite (fixtures + API checks). |
+| `python scripts/install_agent_deps.py` | Install dependencies declared by drop-in agents. |
 | `make smoke`                  | Execute end-to-end smoke test.            |
 | `make docker-build`           | Build container image.                    |
 | `make sbom`                   | Generate CycloneDX SBOM.                  |

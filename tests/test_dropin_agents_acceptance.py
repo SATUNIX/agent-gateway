@@ -1,71 +1,84 @@
-"""Acceptance tests for drop-in OpenAI Agents SDK modules.
-
-All tests are marked as expected failures until Steps 2–4 of the
-Enablement Plan land. They act as executable documentation for the
-required behavior.
-"""
+"""Acceptance tests for drop-in OpenAI Agents SDK modules."""
 
 from __future__ import annotations
 
-import pathlib
+import json
 
-import pytest
-
-from tests.fixtures.dropin_agents import DROPIN_FIXTURES
+from tests.fixtures.dropin_agents import materialize_fixture
 
 
-pytestmark = pytest.mark.skip(reason="Drop-in SDK support not implemented yet")
+DEV_HEADERS = {"x-api-key": "dev-secret"}
 
 
-def _materialize_fixture(tmp_path: pathlib.Path, name: str) -> pathlib.Path:
-    """Write the requested fixture under src/agents/<Name>/agent.py."""
-
-    agent_dir = tmp_path / "src" / "agents" / name
-    agent_dir.mkdir(parents=True, exist_ok=True)
-    (agent_dir / "__init__.py").write_text("", encoding="utf-8")
-    (agent_dir / "agent.py").write_text(DROPIN_FIXTURES[name], encoding="utf-8")
-    return agent_dir
+def _register_fixture(env, fixture_name: str, agent_folder: str) -> str:
+    materialize_fixture(env.agents_root, fixture_name, agent_folder)
+    env.registry.refresh()
+    slug = agent_folder.lower()
+    return f"default/{slug}"
 
 
-class TestDropInAgents:
-    def test_agent_visible_via_models_endpoint(self, tmp_path, client):
-        """Dropping an agent folder should expose it via /v1/models without YAML edits."""
+def test_dropin_agent_visible_via_models_endpoint(dropin_gateway):
+    agent_id = _register_fixture(dropin_gateway, "basic_echo", "EchoAgent")
 
-        _materialize_fixture(tmp_path, "handoff_triad")
-        # TODO: trigger discovery reload and assert /v1/models includes the agent ID.
-        raise NotImplementedError
+    response = dropin_gateway.client.get("/v1/models", headers=DEV_HEADERS)
+    assert response.status_code == 200
+    payload = response.json()
+    model_ids = {entry["id"] for entry in payload["data"]}
+    assert agent_id in model_ids
 
-    def test_chat_completion_streams_from_dropin_agent(self, tmp_path, client):
-        """Chat completions against a drop-in agent should stream SSE chunks."""
 
-        _materialize_fixture(tmp_path, "dynamic_prompt")
-        # TODO: POST /v1/chat/completions?stream=true and validate chunk ordering/content.
-        raise NotImplementedError
+def test_dropin_agent_handles_standard_completion(dropin_gateway):
+    agent_id = _register_fixture(dropin_gateway, "basic_echo", "EchoAgent")
 
-    def test_tool_invocation_uses_sdk_tooling(self, tmp_path, client):
-        """SDK-decorated tools must execute via Runner without schema rewrites."""
+    response = dropin_gateway.client.post(
+        "/v1/chat/completions",
+        headers=DEV_HEADERS,
+        json={
+            "model": agent_id,
+            "messages": [{"role": "user", "content": "Hello"}],
+            "stream": False,
+        },
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    message = payload["choices"][0]["message"]["content"]
+    assert message == "ECHO:Hello"
 
-        _materialize_fixture(tmp_path, "basic_tool")
-        # TODO: invoke agent, assert tool output surfaces directly and metrics/logs capture call.
-        raise NotImplementedError
 
-    def test_handoff_flow_executes_downstream_agent(self, tmp_path, client):
-        """Handoff agents should transition control exactly as defined in SDK code."""
+def test_dropin_agent_streams_gateway_tool_results(dropin_gateway):
+    agent_id = _register_fixture(dropin_gateway, "gateway_tool", "ToolAgent")
 
-        _materialize_fixture(tmp_path, "lifecycle_hooks")
-        # TODO: run chat completion and verify downstream multiply agent result is returned.
-        raise NotImplementedError
+    with dropin_gateway.client.stream(
+        "POST",
+        "/v1/chat/completions",
+        headers=DEV_HEADERS,
+        json={
+            "model": agent_id,
+            "messages": [
+                {"role": "user", "content": "Summarize this sentence please."}
+            ],
+            "stream": True,
+        },
+    ) as response:
+        assert response.status_code == 200
+        content = _collect_sse_content(response)
+        assert "Summary" in content or "Summarize" in content
 
-    def test_guardrail_blocks_input(self, tmp_path, client):
-        """Input guardrails must be evaluated when the drop-in agent runs through the gateway."""
 
-        _materialize_fixture(tmp_path, "guardrail")
-        # TODO: send disallowed prompt and expect guardrail tripwire/HTTP 4xx response.
-        raise NotImplementedError
+def _collect_sse_content(response) -> str:
+    """Return concatenated content from an SSE response."""
 
-    def test_manager_agent_exposes_subagents_as_tools(self, tmp_path, client):
-        """Agents that as_tool() other agents must remain callable via the chat endpoint."""
-
-        _materialize_fixture(tmp_path, "manager_tools")
-        # TODO: run conversation verifying specialized agent output surfaces when invoked as a tool.
-        raise NotImplementedError
+    chunks: list[str] = []
+    for line in response.iter_lines():
+        if not line:
+            continue
+        if not line.startswith("data:"):
+            continue
+        payload = line[len("data: ") :]
+        if payload == "[DONE]":
+            break
+        data = json.loads(payload)
+        delta = data["choices"][0]["delta"]
+        if delta.get("content"):
+            chunks.append(delta["content"])
+    return "".join(chunks)

@@ -66,4 +66,11 @@ Use the new admin endpoints to grant short-lived access without redeploying conf
 - Prometheus metrics: security counters for override usage and denied requests (see `/metrics` endpoint).
 - Combine logs with `/admin/agents` diagnostics to troubleshoot drop-in readiness issues quickly.
 
+## 6. Watch Mode & Auto-Reload
+
+- **Enable:** Install the optional watch dependency (`pip install "agent-gateway[watch]"` or `pip install watchfiles`) and set `GATEWAY_AGENT_WATCH=1`.
+- **Behavior:** A background watcher monitors `src/agents/**` and triggers incremental discovery reloads when `agent.py` files change. Diagnostics/logs still emit `agent.watch.started` / `agent.watch.stopped`.
+- **Fallback:** If `watchfiles` is missing or the discovery root is unavailable, the gateway logs `agent.watch.disabled` and falls back to manual refresh (`POST /agents/refresh`).
+- **Best practice:** Leave watch mode enabled in development environments for instant feedback; keep it off in prod if file watching is unnecessary or file systems lack inotify support.
+
 With these controls, operators can keep the gateway locked down by default while still unblocking teams rapidly through auditable, temporary overrides.

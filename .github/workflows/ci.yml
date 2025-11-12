@@ -24,6 +24,8 @@ jobs:
         run: make lint
       - name: Tests
         run: make test
+      - name: Drop-in Acceptance Tests
+        run: make test-acceptance
       - name: Build Docker image
         run: make docker-build
 

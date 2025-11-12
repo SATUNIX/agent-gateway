@@ -20,20 +20,20 @@ Goal: Any engineer can drop an OpenAI Agents SDK module (e.g., `src/agents/Sampl
 2. **6.2 Admin Errors Endpoint** – Completed: `/admin/agents/errors` surfaces a ring buffer combining discovery/security/tool failures.  
 3. **6.3 Metrics for Drop-In Failures** – Completed: Prometheus counters/gauges track import failures, blocked modules, and tool violations and surface them via existing metrics endpoints.
 
-## 7. Hot Reload & Watch Mode (Breakdown)
-1. **7.1 Watchfiles Integration** – Add optional `watchfiles` dependency and `GATEWAY_AGENT_WATCH` setting; wire a background task that monitors `src/agents/**` and triggers targeted reloads.  
-2. **7.2 Incremental Cache Refresh** – Reuse discovery hashes to reload only changed folders, avoiding full rescans when watch mode is active.  
-3. **7.3 Dev UX & Docs** – Document watch-mode usage (env vars, limitations) in README + OperatorRunbook; ensure graceful fallback when dependency is absent.
+## 7. Hot Reload & Watch Mode (Breakdown) ✅
+1. **7.1 Watchfiles Integration** – Completed: optional `watchfiles` extra + `GATEWAY_AGENT_WATCH` setting start a background watcher that monitors `src/agents/**`.  
+2. **7.2 Incremental Cache Refresh** – Completed: discovery caches now refresh per-file via hashes without full rescans.  
+3. **7.3 Dev UX & Docs** – Completed: README + OperatorRunbook document setup, env vars, and graceful fallback when watchfiles is unavailable.
 
-## 8. Drop-In Acceptance Suite (Breakdown)
-1. **8.1 Fixture Materialization** – Convert SampleAgent/Spark/guardrail/handoff snippets into reusable fixtures under `tests/fixtures/dropin_agents` and helper utilities to materialize them under `tmp_path/src/agents`.  
-2. **8.2 API-Level Tests** – Implement real tests in `tests/test_dropin_agents_acceptance.py` that hit `/v1/models` and `/v1/chat/completions` (stream + tools), asserting proper responses and metrics.  
-3. **8.3 CI Integration** – Update `Makefile`/CI workflow to run the acceptance suite (optionally flagged) so regressions fail PRs automatically.
+## 8. Drop-In Acceptance Suite (Breakdown) ✅
+1. **8.1 Fixture Materialization** – Completed: reusable fixtures + helper live in `tests/fixtures/dropin_agents`, materializing agents into isolated pkg roots.  
+2. **8.2 API-Level Tests** – Completed: `tests/test_dropin_agents_acceptance.py` now exercises `/v1/models`, non-streaming, and streaming completions using actual TestClient flows.  
+3. **8.3 CI Integration** – Completed: `make test-acceptance` target plus GitHub Actions step ensure the suite runs in CI.
 
-## 9. Documentation & UX Refresh (Breakdown)
-1. **9.1 Core Guides Refresh** – Rewrite `docs/guides/DropInAgentGuide.md` + `docs/guides/SDKOnboarding.md` to highlight the drop-in UX, dependency helper, and override story.  
-2. **9.2 Quickstart & Templates** – Add a copy-paste SampleAgent template to `README.md` / `AGENTS.md` plus mention of `scripts/install_agent_deps.py`.  
-3. **9.3 Troubleshooting Matrix** – Expand `docs/guides/Troubleshooting.md` and README with a matrix mapping common errors (missing deps, blocked module, override expired) to remediation steps.
+## 9. Documentation & UX Refresh (Breakdown) ✅
+1. **9.1 Core Guides Refresh** – Completed: new `docs/guides/DropInAgentGuide.md` and `docs/guides/SDKOnboarding.md` cover drop-in UX, dependency helper, watch mode, and overrides.  
+2. **9.2 Quickstart & Templates** – Completed: README/AGENTS include a copy-paste template plus instructions for `scripts/install_agent_deps.py`.  
+3. **9.3 Troubleshooting Matrix** – Completed: new `docs/guides/Troubleshooting.md` plus an expanded README table map common errors to remediations.
 
 ## 10. Release & Operational Automation (Breakdown)
 1. **10.1 CI Pipeline Enhancements** – Modify `.github/workflows/ci.yml` to run lint, unit tests, drop-in acceptance, and nightly dependency audit (reuse `scripts/nightly_audit.py`).  

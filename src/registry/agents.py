@@ -6,7 +6,7 @@ import logging
 import threading
 import time
 from pathlib import Path
-from typing import Any, Dict, Iterable, Optional
+from typing import Any, Dict, Iterable, Optional, Set
 
 import yaml
 
@@ -46,6 +46,7 @@ class AgentRegistry:
         self._agents: Dict[str, AgentSpec] = {}
         self._yaml_agents: Dict[str, AgentSpec] = {}
         self._dropin_agents: Dict[str, AgentSpec] = {}
+        self._dropin_source_index: Dict[str, Set[str]] = {}
         self._defaults: Dict[str, Any] = {}
         self._lock = threading.RLock()
         self._last_mtime: float = 0.0
@@ -58,8 +59,13 @@ class AgentRegistry:
         )
         self._discovery_diagnostics: list[DiscoveryDiagnostic] = []
         self._discovery_mtime: float = 0.0
+        self._watch_enabled = settings.agent_watch_enabled
+        self._watch_thread: threading.Thread | None = None
+        self._watch_stop: threading.Event | None = None
         self._load(force=True)
         self._refresh_discovery(force=True)
+        if self._watch_enabled:
+            self._start_watch_thread()
 
     @classmethod
     def from_settings(cls) -> "AgentRegistry":
@@ -145,6 +151,7 @@ class AgentRegistry:
             specs[spec.qualified_name] = spec
         self._dropin_agents = specs
         self._discovery_mtime = newest_mtime
+        self._reindex_dropin_sources()
         self._rebuild_catalog()
 
     def _rebuild_catalog(self) -> None:
@@ -154,6 +161,15 @@ class AgentRegistry:
                 continue
             catalog[key] = spec
         self._agents = catalog
+
+    def _reindex_dropin_sources(self) -> None:
+        index: Dict[str, Set[str]] = {}
+        for spec in self._dropin_agents.values():
+            source_file = spec.metadata.get("source_file")
+            if not source_file:
+                continue
+            index.setdefault(source_file, set()).add(spec.qualified_name)
+        self._dropin_source_index = index
 
     def _compute_discovery_mtime(self) -> float:
         try:
@@ -166,6 +182,44 @@ class AgentRegistry:
             except FileNotFoundError:
                 continue
         return newest
+
+    def _refresh_discovery_paths(self, paths: Set[Path]) -> None:
+        if not paths:
+            return
+        existing = {path for path in paths if path.exists()}
+        deleted = paths - existing
+        changed = False
+        with self._lock:
+            for path in deleted:
+                self._discoverer.drop_file(path)
+                changed |= self._remove_specs_for_path(path)
+            for path in existing:
+                exports = self._discoverer.refresh_file(path)
+                changed |= self._remove_specs_for_path(path)
+                added: Set[str] = set()
+                for export in exports:
+                    spec = self._spec_from_export(export)
+                    if spec is None:
+                        continue
+                    self._dropin_agents[spec.qualified_name] = spec
+                    added.add(spec.qualified_name)
+                if added:
+                    self._dropin_source_index[str(path)] = added
+                    changed = True
+            if changed:
+                self._reindex_dropin_sources()
+                self._discovery_mtime = self._compute_discovery_mtime()
+                self._rebuild_catalog()
+
+    def _remove_specs_for_path(self, path: Path) -> bool:
+        key = str(path)
+        names = self._dropin_source_index.pop(key, set())
+        removed = False
+        for name in names:
+            if name in self._dropin_agents:
+                removed = True
+                self._dropin_agents.pop(name, None)
+        return removed
 
     def _spec_from_export(self, export: DiscoveredAgentExport) -> AgentSpec | None:
         if export.attribute is None and export.kind == "module":
@@ -288,6 +342,68 @@ class AgentRegistry:
                 severity=severity,  # type: ignore[arg-type]
             )
         )
+
+    def _start_watch_thread(self) -> None:
+        try:
+            from watchfiles import watch
+        except Exception:  # noqa: BLE001
+            self._logger.warning(
+                {
+                    "event": "agent.watch.disabled",
+                    "reason": "watchfiles not installed",
+                }
+            )
+            return
+        if not self._discovery_root.exists():
+            self._logger.warning(
+                {
+                    "event": "agent.watch.disabled",
+                    "reason": f"discovery root missing ({self._discovery_root})",
+                }
+            )
+            return
+        self._watch_stop = threading.Event()
+        self._watch_thread = threading.Thread(
+            target=self._watch_loop,
+            args=(watch,),
+            name="agent-watch",
+            daemon=True,
+        )
+        self._watch_thread.start()
+        self._logger.info(
+            {
+                "event": "agent.watch.started",
+                "path": str(self._discovery_root),
+            }
+        )
+
+    def _watch_loop(self, watch_fn) -> None:
+        assert self._watch_stop is not None
+        try:
+            for changes in watch_fn(
+                self._discovery_root,
+                stop_event=self._watch_stop,
+                recursive=True,
+            ):
+                paths = {
+                    Path(path)
+                    for _, path in changes
+                    if path.endswith("agent.py")
+                }
+                if not paths:
+                    continue
+                self._refresh_discovery_paths(paths)
+        except Exception as exc:  # noqa: BLE001
+            self._logger.warning(
+                {
+                    "event": "agent.watch.stopped",
+                    "reason": str(exc),
+                }
+            )
+
+    def __del__(self) -> None:  # pragma: no cover - best-effort cleanup
+        if self._watch_stop:
+            self._watch_stop.set()
         metrics.record_dropin_failure(kind=f"discovery_{kind}")
         error_recorder.record(
             event="agent_discovery",

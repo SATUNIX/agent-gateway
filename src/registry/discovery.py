@@ -92,6 +92,12 @@ class AgentDiscoverer:
                 continue
             yield path
 
+    def refresh_file(self, file_path: Path) -> list[DiscoveredAgentExport]:
+        return self._process_file(file_path)
+
+    def drop_file(self, file_path: Path) -> None:
+        self._cache.pop(file_path, None)
+
     def _process_file(self, file_path: Path) -> list[DiscoveredAgentExport]:
         try:
             mtime = file_path.stat().st_mtime
