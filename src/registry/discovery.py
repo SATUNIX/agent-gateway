@@ -278,12 +278,15 @@ class AgentDiscoverer:
 
 
 def _looks_like_agent(obj: object) -> bool:
+    if obj is None:
+        return False
+    # Ignore class definitions to avoid duplicating exports
+    if isinstance(obj, type):
+        return False
+    if callable(getattr(obj, "run_sync", None)) or callable(getattr(obj, "run", None)):
+        return True
     cls = getattr(obj, "__class__", None)
-    if cls is None:
-        return False
-    if cls.__name__ != "Agent":
-        return False
-    return hasattr(obj, "instructions")
+    return bool(cls and cls.__name__ == "Agent")
 
 
 def _looks_like_runner(obj: object) -> bool:

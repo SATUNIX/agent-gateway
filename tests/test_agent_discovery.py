@@ -78,8 +78,8 @@ agent = Agent(name="ResearchAgent")
     agents = list(registry.list_agents())
     assert agents, "Expected discovered agent in registry"
     names = {agent.name for agent in agents}
-    assert "ResearchAgent" in names
-    spec = registry.get_agent("ResearchAgent")
+    assert "researchagent" in names
+    spec = registry.get_agent("researchagent")
     assert spec is not None
     assert spec.namespace == "dropin"
     assert spec.metadata.get("dropin") is True

@@ -113,6 +113,12 @@ class AgentExecutor:
             "n": request.n,
             "user": request.user,
         }
+        if agent.kind == "declarative" and agent.tools:
+            tool_defs = self._build_tool_definitions(agent)
+            payload["tools"] = tool_defs
+            tool_choice = agent.metadata.get("tool_choice") if agent.metadata else None
+            if tool_choice:
+                payload["tool_choice"] = tool_choice
         if policy.max_completion_tokens is not None:
             payload["max_tokens"] = policy.max_completion_tokens
         elif request.max_tokens is not None:
@@ -251,6 +257,27 @@ class AgentExecutor:
             raise AgentExecutionError("Tool invocation arguments must be valid JSON")
         except Exception as exc:  # noqa: BLE001
             raise AgentExecutionError(str(exc)) from exc
+
+    def _build_tool_definitions(self, agent: AgentSpec) -> List[Dict[str, Any]]:
+        available = tool_manager.list_tools()
+        definitions: List[Dict[str, Any]] = []
+        for tool_name in agent.tools:
+            spec = available.get(tool_name)
+            if not spec:
+                raise AgentExecutionError(
+                    f"Unknown tool '{tool_name}' for agent {agent.qualified_name}"
+                )
+            parameters = spec.schema or {"type": "object", "properties": {}, "required": []}
+            definition = {
+                "type": "function",
+                "function": {
+                    "name": spec.name,
+                    "description": spec.module or f"{spec.provider} tool",
+                    "parameters": parameters,
+                },
+            }
+            definitions.append(definition)
+        return definitions
 
 
 agent_executor = AgentExecutor()

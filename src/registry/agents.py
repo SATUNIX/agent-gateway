@@ -25,7 +25,8 @@ from api.metrics import metrics
 
 
 def _slugify(value: str) -> str:
-    return "".join(ch if ch.isalnum() or ch in {"-", "_"} else "-" for ch in value).strip("-") or "agent"
+    normalized = "".join(ch if ch.isalnum() or ch in {"-", "_"} else "-" for ch in value).strip("-")
+    return normalized.lower() or "agent"
 
 
 class AgentRegistry:
@@ -302,7 +303,7 @@ class AgentRegistry:
         else:
             namespace = parts[0]
             base_name = parts[-1]
-        if export.attribute and export.attribute not in {"agent", base_name}:
+        if export.attribute and export.attribute.lower() not in {"agent", base_name}:
             base_name = f"{base_name}-{export.attribute}"
         return namespace, _slugify(base_name)
 
@@ -333,6 +334,17 @@ class AgentRegistry:
         kind: DiagnosticKind,
         severity: DiagnosticSeverity = "error",
     ) -> None:
+        metrics.record_dropin_failure(kind=f"discovery_{kind}")
+        error_recorder.record(
+            event="agent_discovery",
+            message=message,
+            details={
+                "module": export.import_path,
+                "file": str(export.file_path),
+                "kind": kind,
+                "severity": severity,
+            },
+        )
         self._discovery_diagnostics.append(
             DiscoveryDiagnostic(
                 file_path=export.file_path,
