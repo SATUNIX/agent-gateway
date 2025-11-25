@@ -18,7 +18,8 @@ import yaml
 from config import get_settings
 from security.models import APIKeyEntry, SecurityConfig
 from observability.errors import error_recorder
-from api.metrics import metrics
+from api.metrics import metrics, record_dropin_failure
+from registry.messages import ErrorMessages
 
 
 logger = logging.getLogger("agent_gateway.security")
@@ -182,7 +183,14 @@ class SecurityManager:
         for pattern in allowlist:
             if self._match_tool_pattern(pattern, module_path):
                 return
-        raise PermissionError(f"Local tool '{module_path}' is not permitted by security policy")
+        message = ErrorMessages.TOOL_NOT_ALLOWED.format(module_path=module_path)
+        record_dropin_failure(kind="tool_violation")
+        error_recorder.record(
+            event="tool_violation",
+            message=message,
+            details={"tool_module": module_path},
+        )
+        raise PermissionError(message)
 
     def reload(self) -> None:
         with self._lock:

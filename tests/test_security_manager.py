@@ -7,6 +7,7 @@ from time import sleep
 
 import pytest
 
+from api.metrics import metrics
 from security.manager import RateLimitExceeded, SecurityManager
 
 
@@ -71,8 +72,11 @@ def test_tool_allowlist(security_manager_tmp: SecurityManager) -> None:
     # Allowed tool should pass
     security_manager_tmp.assert_tool_allowed("tooling.local_tools:summarize_text")
     # Disallowed tool raises
-    with pytest.raises(PermissionError):
+    before = metrics.dropin_failure_counts.get("tool_violation", 0)
+    with pytest.raises(PermissionError) as excinfo:
         security_manager_tmp.assert_tool_allowed("os.system:run")
+    assert "Add an allowlist entry" in str(excinfo.value)
+    assert metrics.dropin_failure_counts.get("tool_violation", 0) >= before
 
 
 def test_agent_module_allowlist(security_manager_tmp: SecurityManager) -> None:

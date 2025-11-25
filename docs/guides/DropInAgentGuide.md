@@ -53,7 +53,7 @@ Drop-in modules live under `src/agents/**`. Each folder maps to `default/<lowerc
    - `agent = Agent(...)`
    - `agent = SomeRunner(...)`
    - `def build_agent(...) -> Agent`
-3. **Declare tools** using `@function_tool` or gateway-managed tools via `use_gateway_tool()`.
+3. **Declare tools** using `@function_tool` or gateway-managed tools via `use_gateway_tool()`. Native `@function_tool` implementations are auto-instrumented for security/metrics (source="sdk") but require an allowlist entry in `src/config/security.yaml` (`default.local_tools_allowlist`) unless you use gateway-managed tools; the latter remain the preferred path for shared utilities.
 4. **Keep responses standard** — return `str`, `dict`, or `ChatCompletionResponse`.
 
 Example:

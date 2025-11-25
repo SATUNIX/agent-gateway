@@ -31,12 +31,22 @@ class ChatCompletionService:
         self, request: ChatCompletionRequest, auth: AuthContext
     ) -> AsyncIterator[str]:
         start = perf_counter()
-        try:
-            async for chunk in agent_executor.stream_completion(request, auth):
-                yield chunk
-        finally:
-            latency_ms = (perf_counter() - start) * 1000
-            metrics.record_completion(latency_ms=latency_ms, streaming=True)
+        async def _generator() -> AsyncIterator[str]:
+            try:
+                async for chunk in agent_executor.stream_completion(request, auth):
+                    yield chunk
+            except AgentNotFoundError as exc:
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
+            except PermissionError as exc:
+                raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc))
+            except AgentExecutionError as exc:
+                raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc))
+            finally:
+                latency_ms = (perf_counter() - start) * 1000
+                metrics.record_completion(latency_ms=latency_ms, streaming=True)
+
+        async for chunk in _generator():
+            yield chunk
 
     async def _execute(
         self, request: ChatCompletionRequest, auth: AuthContext

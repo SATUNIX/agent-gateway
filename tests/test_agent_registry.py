@@ -6,6 +6,7 @@ from pathlib import Path
 import time
 
 from registry.agents import AgentRegistry
+from config import get_settings
 
 
 def write_agents_config(path: Path) -> None:
@@ -38,9 +39,11 @@ agents:
     )
 
 
-def test_agent_registry_loads_and_queries(tmp_path: Path) -> None:
+def test_agent_registry_loads_and_queries(tmp_path: Path, monkeypatch) -> None:
     config_path = tmp_path / "agents.yaml"
     write_agents_config(config_path)
+    monkeypatch.setenv("GATEWAY_AGENT_DISCOVERY_EXTRA_PATHS", "")
+    get_settings.cache_clear()
     registry = AgentRegistry(config_path=config_path, auto_reload=False)
 
     agents = list(registry.list_agents())
@@ -56,9 +59,11 @@ def test_agent_registry_loads_and_queries(tmp_path: Path) -> None:
     assert sdk_agent.kind == "sdk"
 
 
-def test_agent_registry_auto_reload_detects_changes(tmp_path: Path) -> None:
+def test_agent_registry_auto_reload_detects_changes(tmp_path: Path, monkeypatch) -> None:
     config_path = tmp_path / "agents.yaml"
     write_agents_config(config_path)
+    monkeypatch.setenv("GATEWAY_AGENT_DISCOVERY_EXTRA_PATHS", "")
+    get_settings.cache_clear()
     registry = AgentRegistry(config_path=config_path, auto_reload=True)
 
     sdk_agent = registry.get_agent("sdk/sdk-agent")

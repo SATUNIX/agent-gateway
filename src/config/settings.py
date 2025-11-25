@@ -13,6 +13,7 @@ PACKAGE_DIR = Path(__file__).resolve().parent
 SRC_ROOT = PACKAGE_DIR.parent
 CONFIG_DIR = PACKAGE_DIR
 AGENTS_DIR = SRC_ROOT / "agents"
+EXAMPLES_AGENTS_DIR = SRC_ROOT.parent / "examples" / "agents"
 
 
 def _split_csv(value: str | None) -> List[str]:
@@ -20,6 +21,13 @@ def _split_csv(value: str | None) -> List[str]:
         return ["*"]
     parts = [item.strip() for item in value.split(",") if item.strip()]
     return parts or ["*"]
+
+
+def _split_paths(value: str | None, default: List[str]) -> List[str]:
+    if not value:
+        return default
+    parts = [item.strip() for item in value.split(",") if item.strip()]
+    return parts or default
 
 
 def _env_bool(value: str | None, default: bool = False) -> bool:
@@ -49,6 +57,14 @@ class Settings(BaseModel):
     agent_discovery_package: str = Field(
         default="agents",
         description="Python package name corresponding to the discovery root",
+    )
+    agent_discovery_extra_paths: List[str] = Field(
+        default_factory=lambda: [str(EXAMPLES_AGENTS_DIR)],
+        description="Additional discovery roots (comma-separated via env)",
+    )
+    agent_discovery_extra_package: str = Field(
+        default="examples.agents",
+        description="Package prefix used for extra discovery roots",
     )
     upstream_config_path: str = Field(
         default=str(CONFIG_DIR / "upstreams.yaml"),
@@ -110,6 +126,11 @@ def get_settings() -> Settings:
         _split_csv(export_names_env) if export_names_env else ["agent", "build_agent"]
     )
 
+    extra_discovery_paths = _split_paths(
+        os.getenv("GATEWAY_AGENT_DISCOVERY_EXTRA_PATHS"),
+        [str(EXAMPLES_AGENTS_DIR)],
+    )
+
     return Settings(
         project_name=os.getenv("GATEWAY_PROJECT_NAME", "Agent Gateway"),
         version=os.getenv("GATEWAY_VERSION", "0.1.0"),
@@ -123,6 +144,10 @@ def get_settings() -> Settings:
             "GATEWAY_AGENT_DISCOVERY_PATH", str(AGENTS_DIR)
         ),
         agent_discovery_package=os.getenv("GATEWAY_AGENT_DISCOVERY_PACKAGE", "agents"),
+        agent_discovery_extra_paths=extra_discovery_paths,
+        agent_discovery_extra_package=os.getenv(
+            "GATEWAY_AGENT_DISCOVERY_EXTRA_PACKAGE", "examples.agents"
+        ),
         upstream_config_path=os.getenv(
             "GATEWAY_UPSTREAM_CONFIG", str(CONFIG_DIR / "upstreams.yaml")
         ),

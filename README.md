@@ -37,7 +37,7 @@ Drop a standard SDK agent into `src/agents/<Name>/agent.py`, and the gateway aut
 | **Tooling**               | Centralized Tool/MCP manager for local Python, HTTP, and MCP providers. Includes the `use_gateway_tool()` shim so SDK agents can reuse gateway tools.                            |
 | **Routing**               | Namespace-aware registries map models to upstream providers (OpenAI, LM Studio, Ollama, etc.) with per-agent execution policies.                          |
 | **Security**              | API keys, ACLs, rate limits, tool allowlists, module allow/deny lists, and nightly audit scripts.                                                         |
-| **Observability**         | Structured logs, Prometheus metrics, request IDs, and visual dashboards (`docs/systems/observability.md`).                                                |
+| **Observability**         | Structured logs, Prometheus metrics, request IDs, and visual dashboards (see `docs/systems/observability.md`).                                                |
 | **Packaging**             | Multi-stage Dockerfile, Docker Compose stack, SBOM generation, CI/CD pipeline, and operator runbooks.                                                     |
 
 ---
@@ -144,7 +144,7 @@ See [`docs/guides/DropInAgentGuide.md`](docs/guides/DropInAgentGuide.md) for con
 | `src/config/upstreams.yaml` | Defines upstream LLM providers (URLs, keys, health checks). |
 | `src/config/tools.yaml`     | Registry for gateway-managed tools.                         |
 | `src/config/security.yaml`  | API keys, ACLs, tool/module allow/deny lists.               |
-| `docs/`                     | Contains guides, references, and system docs.               |
+| `docs/`                     | Contains guides, references, and system docs. See `docs/README.md` for navigation. |
 | `docs/guides/OperatorRunbook.md` | Day-2 operations, overrides, troubleshooting.            |
 
 **Environment Variables:**
@@ -200,8 +200,9 @@ See [`docs/guides/Troubleshooting.md`](docs/guides/Troubleshooting.md) for deepe
 ## 🔍 Observability & Security
 
 * **Logs:** Structured JSON with request IDs and tool invocation traces.
-* **Metrics:** `/metrics` and `/metrics/prometheus` endpoints for performance data.
-* **Security:** API keys, ACLs, rate limits, audit scripts, and nightly verification.
+* **Metrics:** `/metrics` and `/metrics/prometheus` endpoints for performance data; `/admin/metrics` includes tool breakdowns and drop-in failure counts.
+* **Security:** API keys, ACLs, rate limits, audit scripts, and nightly verification. Native SDK tools require explicit allowlisting in `src/config/security.yaml` (`local_tools_allowlist`) unless you use gateway-managed tools.
+* See `docs/systems/observability.md` for detailed logging/metrics/error guidance.
 
 ---
 
@@ -216,9 +217,7 @@ See [`docs/guides/Troubleshooting.md`](docs/guides/Troubleshooting.md) for deepe
 
 ## 🗺️ Roadmap
 
-Development milestones are tracked in
-`docs/plans/AgentGateway_10-Step_Development_Plan.md`
-A new plan will follow after the initial alpha release and capability assessment.
+Development milestones are tracked in current gap/plan reports under `docs/ReviewsAndReports/`. The legacy `AgentGateway_10-Step_Development_Plan.md` is retired.
 
 ---
 

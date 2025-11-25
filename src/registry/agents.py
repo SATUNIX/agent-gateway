@@ -51,15 +51,27 @@ class AgentRegistry:
         self._defaults: Dict[str, Any] = {}
         self._lock = threading.RLock()
         self._last_mtime: float = 0.0
-        self._discovery_root = Path(discovery_root or settings.agent_discovery_path).resolve()
-        self._discovery_package = discovery_package or settings.agent_discovery_package
-        self._discoverer = AgentDiscoverer(
-            self._discovery_root,
-            self._discovery_package,
+        self._discovery_diagnostics: list[DiscoveryDiagnostic] = []
+        self._discoverers: Dict[Path, AgentDiscoverer] = {}
+        self._primary_root = Path(discovery_root or settings.agent_discovery_path).resolve()
+        self._primary_package = discovery_package or settings.agent_discovery_package
+        self._discoverers[self._primary_root] = AgentDiscoverer(
+            self._primary_root,
+            self._primary_package,
             export_names=settings.agent_export_names,
         )
+        self._primary_discoverer = self._discoverers[self._primary_root]
+
+        for extra_path in settings.agent_discovery_extra_paths:
+            root = Path(extra_path).resolve()
+            if root == self._primary_root:
+                continue
+            self._discoverers[root] = AgentDiscoverer(
+                root,
+                settings.agent_discovery_extra_package,
+                export_names=settings.agent_export_names,
+            )
         self._discovery_diagnostics: list[DiscoveryDiagnostic] = []
-        self._discovery_mtime: float = 0.0
         self._watch_enabled = settings.agent_watch_enabled
         self._watch_thread: threading.Thread | None = None
         self._watch_stop: threading.Event | None = None
@@ -132,18 +144,13 @@ class AgentRegistry:
         self._rebuild_catalog()
 
     def _refresh_discovery(self, force: bool = False) -> None:
-        root = self._discovery_root
-        if not root.exists():
-            if self._dropin_agents:
-                self._dropin_agents = {}
-                self._rebuild_catalog()
-            self._discovery_diagnostics = []
-            return
-        newest_mtime = self._compute_discovery_mtime()
-        if not force and newest_mtime <= self._discovery_mtime:
-            return
-        exports = self._discoverer.discover()
-        self._discovery_diagnostics = self._discoverer.diagnostics()
+        exports: list[DiscoveredAgentExport] = []
+        self._discovery_diagnostics = []
+        for root, discoverer in self._discoverers.items():
+            if not root.exists():
+                continue
+            exports.extend(discoverer.discover())
+            self._discovery_diagnostics.extend(discoverer.diagnostics())
         specs: Dict[str, AgentSpec] = {}
         for export in exports:
             spec = self._spec_from_export(export)
@@ -151,7 +158,6 @@ class AgentRegistry:
                 continue
             specs[spec.qualified_name] = spec
         self._dropin_agents = specs
-        self._discovery_mtime = newest_mtime
         self._reindex_dropin_sources()
         self._rebuild_catalog()
 
@@ -174,42 +180,50 @@ class AgentRegistry:
 
     def _compute_discovery_mtime(self) -> float:
         try:
-            newest = self._discovery_root.stat().st_mtime
+            newest = self._primary_root.stat().st_mtime
         except FileNotFoundError:
             return 0.0
-        for path in self._discovery_root.rglob("*"):
+        for path in self._primary_root.rglob("*"):
             try:
                 newest = max(newest, path.stat().st_mtime)
             except FileNotFoundError:
                 continue
         return newest
 
+    def _find_discovery_root(self, file_path: Path) -> Path:
+        for root in self._discoverers.keys():
+            if file_path.is_relative_to(root):
+                return root
+        return self._primary_root
+
     def _refresh_discovery_paths(self, paths: Set[Path]) -> None:
         if not paths:
             return
         existing = {path for path in paths if path.exists()}
-        deleted = paths - existing
         changed = False
         with self._lock:
-            for path in deleted:
-                self._discoverer.drop_file(path)
-                changed |= self._remove_specs_for_path(path)
-            for path in existing:
-                exports = self._discoverer.refresh_file(path)
-                changed |= self._remove_specs_for_path(path)
-                added: Set[str] = set()
-                for export in exports:
-                    spec = self._spec_from_export(export)
-                    if spec is None:
-                        continue
-                    self._dropin_agents[spec.qualified_name] = spec
-                    added.add(spec.qualified_name)
-                if added:
-                    self._dropin_source_index[str(path)] = added
-                    changed = True
+            for root, discoverer in self._discoverers.items():
+                scoped = {path for path in existing if path.is_relative_to(root)}
+                if not scoped:
+                    continue
+                for path in scoped:
+                    exports = discoverer.refresh_file(path)
+                    changed |= self._remove_specs_for_path(path)
+                    added: Set[str] = set()
+                    for export in exports:
+                        spec = self._spec_from_export(export)
+                        if spec is None:
+                            continue
+                        self._dropin_agents[spec.qualified_name] = spec
+                        added.add(spec.qualified_name)
+                    if added:
+                        self._dropin_source_index[str(path)] = added
+                        changed = True
+            for path in paths:
+                if not path.exists():
+                    changed |= self._remove_specs_for_path(path)
             if changed:
                 self._reindex_dropin_sources()
-                self._discovery_mtime = self._compute_discovery_mtime()
                 self._rebuild_catalog()
 
     def _remove_specs_for_path(self, path: Path) -> bool:
@@ -289,8 +303,9 @@ class AgentRegistry:
     def _derive_identity(
         self, export: DiscoveredAgentExport, fallback_namespace: str
     ) -> tuple[str, str]:
+        root = self._find_discovery_root(export.file_path)
         try:
-            relative = export.file_path.parent.relative_to(self._discovery_root)
+            relative = export.file_path.parent.relative_to(root)
             parts = list(relative.parts)
         except ValueError:
             parts = []
@@ -366,11 +381,11 @@ class AgentRegistry:
                 }
             )
             return
-        if not self._discovery_root.exists():
+        if not self._primary_root.exists():
             self._logger.warning(
                 {
                     "event": "agent.watch.disabled",
-                    "reason": f"discovery root missing ({self._discovery_root})",
+                    "reason": f"discovery root missing ({self._primary_root})",
                 }
             )
             return
@@ -385,7 +400,7 @@ class AgentRegistry:
         self._logger.info(
             {
                 "event": "agent.watch.started",
-                "path": str(self._discovery_root),
+                "path": str(self._primary_root),
             }
         )
 
@@ -393,7 +408,7 @@ class AgentRegistry:
         assert self._watch_stop is not None
         try:
             for changes in watch_fn(
-                self._discovery_root,
+                self._primary_root,
                 stop_event=self._watch_stop,
                 recursive=True,
             ):

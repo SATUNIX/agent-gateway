@@ -16,6 +16,9 @@ from typing import Any, Iterable, Iterator, Literal, Sequence
 
 from packaging.requirements import Requirement
 
+from api.metrics import record_dropin_failure
+from observability.errors import error_recorder
+
 
 DiscoveredExportKind = Literal["agent", "factory", "runner", "module"]
 DiagnosticKind = Literal["import", "dependency", "validation", "security"]
@@ -266,6 +269,17 @@ class AgentDiscoverer:
         kind: DiagnosticKind,
         severity: DiagnosticSeverity,
     ) -> None:
+        record_dropin_failure(kind=f"discovery_{kind}")
+        error_recorder.record(
+            event="agent_discovery",
+            message=message,
+            details={
+                "module": module,
+                "file": str(file_path),
+                "kind": kind,
+                "severity": severity,
+            },
+        )
         self._diagnostics.append(
             DiscoveryDiagnostic(
                 file_path=file_path,

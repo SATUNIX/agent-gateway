@@ -138,3 +138,45 @@ def test_adapter_accepts_agent_factory(monkeypatch) -> None:
     )
 
     assert response.choices[0].message.content.startswith("factory:")
+
+
+def test_adapter_imports_from_source_file(tmp_path) -> None:
+    adapter = SDKAgentAdapter()
+    agent_file = tmp_path / "agent.py"
+    agent_file.write_text(
+        """
+class DemoAgent:
+    def run_sync(self, *, messages, **kwargs):
+        return "ok"
+
+
+agent = DemoAgent()
+""",
+        encoding="utf-8",
+    )
+    spec = AgentSpec(
+        name="demo",
+        namespace="default",
+        display_name="Demo",
+        description="",
+        kind="sdk",
+        upstream="mock",
+        model="mock-model",
+        module="examples.agents.demo:agent",
+        metadata={"source_file": str(agent_file)},
+    )
+    request = ChatCompletionRequest(
+        model="demo",
+        messages=[ChatMessage(role="user", content="hi")],
+    )
+
+    response = adapter.run_agent(
+        module_path=spec.module,
+        agent=spec,
+        client=DummyClient(),
+        request=request,
+        messages=[msg.model_dump() for msg in request.messages],
+        policy=ExecutionPolicy(),
+    )
+
+    assert response.choices[0].message.content == "ok"

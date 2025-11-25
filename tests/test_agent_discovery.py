@@ -7,6 +7,8 @@ import pytest
 
 from registry.agents import AgentRegistry
 from registry.discovery import AgentDiscoverer
+from config import get_settings
+from observability.errors import error_recorder
 
 
 def _write_agent_package(root: Path, package: str, folder: str, body: str) -> Path:
@@ -32,6 +34,8 @@ agent = Agent(name="Sample")
 """
     pkg_root = _write_agent_package(tmp_path, "agents_pkg", "ResearchAgent", body)
     monkeypatch.syspath_prepend(str(tmp_path))
+    monkeypatch.setenv("GATEWAY_AGENT_DISCOVERY_EXTRA_PATHS", "")
+    get_settings.cache_clear()
     discoverer = AgentDiscoverer(pkg_root, "agents_pkg", export_names=["agent", "build_agent"])
 
     exports = discoverer.discover()
@@ -41,6 +45,7 @@ agent = Agent(name="Sample")
     assert agent_exports, "Expected an 'agent' export in discovered exports"
     export = agent_exports[0]
     assert export.import_path.endswith(":agent")
+    get_settings.cache_clear()
 
 
 def test_registry_merges_dropin_agents(tmp_path, monkeypatch):
@@ -67,6 +72,8 @@ agent = Agent(name="ResearchAgent")
 """
     pkg_root = _write_agent_package(tmp_path, "agents_pkg", "ResearchAgent", body)
     monkeypatch.syspath_prepend(str(tmp_path))
+    monkeypatch.setenv("GATEWAY_AGENT_DISCOVERY_EXTRA_PATHS", "")
+    get_settings.cache_clear()
 
     registry = AgentRegistry(
         config_path=config_path,
@@ -82,6 +89,7 @@ agent = Agent(name="ResearchAgent")
     spec = registry.get_agent("researchagent")
     assert spec is not None
     assert spec.namespace == "dropin"
+    get_settings.cache_clear()
     assert spec.metadata.get("dropin") is True
 
 
@@ -108,6 +116,8 @@ agent = Agent(name="ResearchAgent")
 """
     pkg_root = _write_agent_package(tmp_path, "agents_pkg", "ResearchAgent", body)
     monkeypatch.syspath_prepend(str(tmp_path))
+    monkeypatch.setenv("GATEWAY_AGENT_DISCOVERY_EXTRA_PATHS", "")
+    get_settings.cache_clear()
 
     class Blocker:
         def assert_agent_module_allowed(self, module_path: str) -> None:
@@ -124,6 +134,7 @@ agent = Agent(name="ResearchAgent")
 
     agents = list(registry.list_agents())
     assert agents == []
+    get_settings.cache_clear()
 
 
 def test_registry_respects_custom_allowance(tmp_path, monkeypatch):
@@ -149,6 +160,8 @@ agent = Agent(name="ResearchAgent")
 """
     pkg_root = _write_agent_package(tmp_path, "agents_pkg", "ResearchAgent", body)
     monkeypatch.syspath_prepend(str(tmp_path))
+    monkeypatch.setenv("GATEWAY_AGENT_DISCOVERY_EXTRA_PATHS", "")
+    get_settings.cache_clear()
 
     class AllowOnlyResearch:
         def assert_agent_module_allowed(self, module_path: str) -> None:
@@ -167,6 +180,38 @@ agent = Agent(name="ResearchAgent")
     agents = list(registry.list_agents())
     assert len(agents) == 1
     assert agents[0].namespace == "research"
+    get_settings.cache_clear()
+
+
+def test_discovery_diagnostics_record_errors(tmp_path, monkeypatch):
+    agent_file = tmp_path / "agents_pkg" / "BadAgent" / "agent.py"
+    agent_file.parent.mkdir(parents=True, exist_ok=True)
+    agent_file.write_text("this is not valid python", encoding="utf-8")
+    monkeypatch.syspath_prepend(str(tmp_path))
+    monkeypatch.setenv("GATEWAY_AGENT_DISCOVERY_EXTRA_PATHS", "")
+    get_settings.cache_clear()
+
+    recorded = []
+    monkeypatch.setattr(
+        "registry.discovery.error_recorder",
+        type(
+            "Recorder",
+            (),
+            {"record": lambda self, **kwargs: recorded.append(kwargs)},
+        )(),
+    )
+    failures = []
+    monkeypatch.setattr(
+        "registry.discovery.record_dropin_failure",
+        lambda kind: failures.append(kind),
+    )
+
+    discoverer = AgentDiscoverer(agent_file.parent.parent, "agents_pkg", export_names=["agent"])
+    discoverer.discover()
+
+    assert failures and failures[0].startswith("discovery_import")
+    assert recorded, "Expected error recorder to capture discovery diagnostic"
+    get_settings.cache_clear()
 @pytest.fixture(autouse=True)
 def allow_all_security(monkeypatch):
     class AllowAll:

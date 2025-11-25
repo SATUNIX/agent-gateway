@@ -62,8 +62,8 @@ agent = Agent(
 
 ### Tooling
 
-- Prefer SDK-native `@function_tool` for agent-specific logic.
-- Use `use_gateway_tool("name")` for centrally managed tools (benefits: shared observability, ACLs, retries). Gateway enforcement blocks SDK agents that invoke unmanaged tools—wrap shared tools with `use_gateway_tool()` to remain compliant.
+- Prefer SDK-native `@function_tool` for agent-specific logic. Native tools are now auto-instrumented for security/metrics (source="sdk").
+- Use `use_gateway_tool("name")` for centrally managed tools (benefits: shared observability, ACLs, retries). Gateway-managed tools remain the recommended option for shared utilities.
 
 ### Metadata Overrides
 

@@ -88,8 +88,13 @@ class AgentExecutor:
         payload = self._build_payload(agent, request, policy)
         try:
             if agent.kind == "sdk":
-                response = await self._invoke_sdk_agent(agent, payload, request, policy)
-                for chunk in iter_sse_from_response(response):
+                async for chunk in sdk_agent_adapter.stream_agent(
+                    agent=agent,
+                    client=self._upstream_registry.get_client(agent.upstream),
+                    request=request,
+                    messages=payload["messages"],
+                    policy=policy,
+                ):
                     yield chunk
                 return
             async for chunk in self._invoke_declarative_stream(agent, payload, request, policy):
