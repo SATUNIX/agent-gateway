@@ -9,6 +9,8 @@ agents:
     display_name: General Assistant
     description: Concise helper with access to weather MCP tools.
     kind: declarative
+    upstream: lmstudio
+    model: gpt-4o-mini
     instructions: |
       You are a concise and helpful assistant that summarizes information clearly.
     tools:
@@ -21,6 +23,8 @@ agents:
     display_name: Deep Researcher
     description: SDK-driven researcher that calls external workflows.
     kind: sdk
+    upstream: lmstudio
+    model: gpt-4o-mini
     module: agents.sdk_example:build_agent
     tools:
       - web_search

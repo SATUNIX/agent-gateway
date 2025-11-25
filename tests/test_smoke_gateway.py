@@ -118,7 +118,7 @@ client = TestClient(main_app.app)
 
 
 def _inject_fake_executor() -> None:
-    from agents import executor as executor_module
+    import agents.executor as executor_module
     import api.services.chat as chat_service_module
 
     fake_executor = AgentExecutor()
@@ -143,4 +143,3 @@ def test_gateway_smoke_round_trip() -> None:
     payload = response.json()
     assert payload["choices"][0]["finish_reason"] == "stop"
     assert payload["choices"][0]["message"]["content"].startswith("Tool result:")
-*** End Patch

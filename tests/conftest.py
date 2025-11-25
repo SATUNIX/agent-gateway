@@ -1,11 +1,20 @@
 from __future__ import annotations
 
 import importlib
+import os
 from dataclasses import dataclass
 from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
+
+# Ensure test env uses local configs before importing app modules
+from config import get_settings
+
+BASE_DIR = Path(__file__).resolve().parent.parent
+os.environ["GATEWAY_SECURITY_CONFIG"] = str(BASE_DIR / "src" / "config" / "security.yaml")
+os.environ["GATEWAY_AGENT_CONFIG"] = str(BASE_DIR / "src" / "config" / "agents.yaml")
+get_settings.cache_clear()
 
 import api.main as main_app
 import agents.executor as executor_module
@@ -14,7 +23,6 @@ import api.routes.admin as admin_routes
 import api.routes.models as model_routes
 import registry as registry_pkg
 from agents.executor import AgentExecutor
-from config import get_settings
 from registry.agents import AgentRegistry
 
 

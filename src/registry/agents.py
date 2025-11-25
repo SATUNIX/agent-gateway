@@ -401,21 +401,6 @@ class AgentRegistry:
                 }
             )
 
-    def __del__(self) -> None:  # pragma: no cover - best-effort cleanup
-        if self._watch_stop:
-            self._watch_stop.set()
-        metrics.record_dropin_failure(kind=f"discovery_{kind}")
-        error_recorder.record(
-            event="agent_discovery",
-            message=message,
-            details={
-                "module": export.import_path,
-                "file": str(export.file_path),
-                "kind": kind,
-                "severity": severity,
-            },
-        )
-
     def list_discovery_diagnostics(self) -> Iterable[DiscoveryDiagnostic]:
         self._refresh_discovery()
         return list(self._discovery_diagnostics)

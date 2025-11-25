@@ -7,7 +7,7 @@ from typing import AsyncIterator
 
 from fastapi import HTTPException, status
 
-from agents import agent_executor
+from agents.executor import agent_executor
 from agents.executor import AgentExecutionError, AgentNotFoundError
 from api.metrics import metrics
 from api.models.chat import ChatCompletionRequest, ChatCompletionResponse

@@ -32,14 +32,14 @@ agent = Agent(name="Sample")
 """
     pkg_root = _write_agent_package(tmp_path, "agents_pkg", "ResearchAgent", body)
     monkeypatch.syspath_prepend(str(tmp_path))
-    discoverer = AgentDiscoverer(pkg_root, "agents_pkg")
+    discoverer = AgentDiscoverer(pkg_root, "agents_pkg", export_names=["agent", "build_agent"])
 
     exports = discoverer.discover()
 
     assert exports, "Expected at least one export"
-    export = exports[0]
-    assert export.attribute == "agent"
-    assert export.kind == "agent"
+    agent_exports = [e for e in exports if e.kind == "agent" and e.attribute and e.attribute.lower() == "agent"]
+    assert agent_exports, "Expected an 'agent' export in discovered exports"
+    export = agent_exports[0]
     assert export.import_path.endswith(":agent")
 
 
