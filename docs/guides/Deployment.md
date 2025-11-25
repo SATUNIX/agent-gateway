@@ -36,7 +36,7 @@ This guide covers common deployment methods for the Agent Gateway, including loc
    ```
 
 ## 2) Docker
-1. Build:
+1. Build (uses multi-stage + `.dockerignore` to trim dev/test artifacts):
    ```bash
    docker build -t agent-gateway:local .
    ```
@@ -46,10 +46,12 @@ This guide covers common deployment methods for the Agent Gateway, including loc
      -e GATEWAY_SECURITY_CONFIG=/app/src/config/security.yaml \
      -e GATEWAY_AGENT_CONFIG=/app/src/config/agents.yaml \
      -e PYTHONPATH=/app/src \
-     agent-gateway:local \
-     uvicorn api.main:app --host 0.0.0.0 --port 8000
+     -e UVICORN_WORKERS=2 \
+     -e UVICORN_TIMEOUT=65 \
+     agent-gateway:local
    ```
-3. Mount drop-ins: bind-mount `src/agents` into the container or bake agents into the image.
+   - Default CMD uses env vars `UVICORN_HOST/PORT/WORKERS/TIMEOUT`; override as needed.
+3. Mount drop-ins: bind-mount `src/agents` (and optional `examples/agents`) into the container or bake agents into the image.
 
 ## 3) Docker Compose
 1. Use `docker-compose.yaml` as a template. Key mounts:
@@ -59,14 +61,16 @@ This guide covers common deployment methods for the Agent Gateway, including loc
    ```bash
    docker-compose up --build
    ```
-3. Environment overrides: set via `.env` or compose `environment:` section (e.g., `GATEWAY_AGENT_WATCH=0` in production).
+3. Environment overrides: set via `.env` or compose `environment:` section (e.g., `GATEWAY_AGENT_WATCH=0` in production; tweak `UVICORN_WORKERS/TIMEOUT`).
+4. Drop-ins: mount your `src/agents` into the container for hot iteration; otherwise rebuild to include new agents.
 
 ## 4) Production Notes
-- Disable `--reload` and watch mode; run with a process manager or container orchestration.
+- Disable `--reload` and watch mode; use container orchestration for restarts.
 - Ensure `openai-agents` and agent-specific dependencies are present in the image (install via `scripts/install_agent_deps.py` during build).
 - Set API keys and secrets via env vars, not committed files.
 - Configure `GATEWAY_DEFAULT_MODEL` and `GATEWAY_DEFAULT_UPSTREAM` if drop-ins don’t specify `__gateway__` overrides.
 - Expose `/metrics/prometheus` only when desired; secure admin endpoints with API keys.
+- Right-size workers/timeouts via `UVICORN_WORKERS`/`UVICORN_TIMEOUT`.
 
 ## 5) Health and Diagnostics
 - Health: `/health` and `/` basic probes.
