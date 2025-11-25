@@ -40,6 +40,11 @@ class MetricsResponse(BaseModel):
     average_latency_ms: float
     max_latency_ms: float
     min_latency_ms: float
+    tool_invocations: int
+    tool_failures: int
+    average_tool_latency_ms: float
+    tool_breakdown: Dict[str, Dict[str, Dict[str, float]]]
+    dropin_failures: Dict[str, int]
 
 
 class ToolInfo(BaseModel):

@@ -85,12 +85,7 @@ class AuthContext:
 
     @staticmethod
     def _match_pattern(pattern: str, name: str) -> bool:
-        if pattern == "*":
-            return True
-        if pattern.endswith("/*"):
-            namespace = pattern[:-2]
-            return name.startswith(f"{namespace}/")
-        return pattern == name
+        return fnmatch(name, pattern) or name == pattern
 
     def _log_decision(
         self,

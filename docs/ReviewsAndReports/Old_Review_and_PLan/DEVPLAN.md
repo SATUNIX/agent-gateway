@@ -1,6 +1,6 @@
 # Agent Gateway Drop-In Readiness – 10-Step Development Plan
 
-Goal: Any engineer can drop an OpenAI Agents SDK module (e.g., `src/agents/SampleAgent/agent.py` from Agent Builder) into the repo and have it exposed securely via `/v1/chat/completions` without editing YAML or wrestling with tooling. This plan remediates the gaps documented in `docs/plans/Gap_Analysis_Report.md` and aligns the codebase with the Spark/SampleAgent patterns.
+Goal: Any engineer can drop an OpenAI Agents SDK module (e.g., `src/agents/SampleAgent/agent.py` from Agent Builder) into the repo and have it exposed securely via `/v1/chat/completions` without editing YAML or wrestling with tooling. This plan remediates the gaps documented in `docs/plans/Gap_Analysis_Report.md` (live reference) and aligns the codebase with the Spark/SampleAgent patterns.
 
 ---
 

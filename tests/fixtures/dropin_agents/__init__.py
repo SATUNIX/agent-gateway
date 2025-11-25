@@ -40,6 +40,21 @@ agent = ToolAgent()
 DROPIN_FIXTURES: Dict[str, str] = {
     "basic_echo": BASIC_ECHO_AGENT,
     "gateway_tool": GATEWAY_TOOL_AGENT,
+    "agent_builder": """\
+from agents import Agent, function_tool
+
+
+@function_tool
+def greet(name: str) -> str:
+    return f"Hello, {name}!"
+
+
+agent = Agent(
+    name=\"BuilderAgent\",
+    instructions=\"Greet the user politely.\",
+    tools=[greet],
+)
+""",
 }
 
 

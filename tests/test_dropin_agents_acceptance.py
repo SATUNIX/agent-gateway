@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from types import SimpleNamespace
 
 from tests.fixtures.dropin_agents import materialize_fixture
 
@@ -82,3 +83,27 @@ def _collect_sse_content(response) -> str:
         if delta.get("content"):
             chunks.append(delta["content"])
     return "".join(chunks)
+
+
+def test_agent_builder_imports_and_runs(dropin_gateway, monkeypatch):
+    agent_id = _register_fixture(dropin_gateway, "agent_builder", "BuilderAgent")
+
+    class FakeRunner:
+        @staticmethod
+        async def run(agent_obj, *, input):  # type: ignore[override]
+            return SimpleNamespace(final_output="builder-ok")
+
+    monkeypatch.setattr("agents.Runner", FakeRunner)
+
+    response = dropin_gateway.client.post(
+        "/v1/chat/completions",
+        headers=DEV_HEADERS,
+        json={
+            "model": agent_id,
+            "messages": [{"role": "user", "content": "Hi"}],
+            "stream": False,
+        },
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["choices"][0]["message"]["content"] == "builder-ok"

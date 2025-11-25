@@ -63,7 +63,7 @@ agent = Agent(
 ### Tooling
 
 - Prefer SDK-native `@function_tool` for agent-specific logic.
-- Use `use_gateway_tool("name")` for centrally managed tools (benefits: shared observability, ACLs, retries).
+- Use `use_gateway_tool("name")` for centrally managed tools (benefits: shared observability, ACLs, retries). Gateway enforcement blocks SDK agents that invoke unmanaged tools—wrap shared tools with `use_gateway_tool()` to remain compliant.
 
 ### Metadata Overrides
 
@@ -132,6 +132,7 @@ curl -H "x-api-key: dev-secret" -H "Content-Type: application/json" \
 - Use `/security/preview` to troubleshoot access, `/security/override` for TTL-based overrides.
 - Logs: `agent.security.decision`, `agent.security.override.created`, etc.
 - `/admin/agents/errors` summarizes recent deny events (missing deps, allowlist issues, guardrail blocks).
+- Pattern matching supports wildcards (fnmatch): `labs/*`, `alpha/demo*`, or `*planner*` can be used in allow/deny lists.
 
 ---
 

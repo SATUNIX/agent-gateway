@@ -11,13 +11,18 @@ from starlette.concurrency import run_in_threadpool
 
 from agents.policies import ExecutionPolicy
 from api.metrics import metrics, record_upstream_call
-from api.models.chat import ChatCompletionRequest, ChatCompletionResponse
+from api.models.chat import (
+    ChatCompletionChunk,
+    ChatCompletionRequest,
+    ChatCompletionResponse,
+)
 from registry import agent_registry, upstream_registry
 from registry.models import AgentSpec
 from tooling import ToolInvocationContext, tool_manager
 from sdk_adapter import SDKAgentAdapter, SDKAgentError
 from security import AuthContext
 from observability.context import update_log_context
+from api.services.streaming import encode_sse_chunk, iter_sse_from_response
 
 
 class AgentNotFoundError(RuntimeError):
@@ -65,6 +70,32 @@ class AgentExecutor:
                 update_log_context(error_stage=None)
         finally:
             update_log_context(agent_id=None, module_path=None)
+
+    async def stream_completion(
+        self, request: ChatCompletionRequest, auth: AuthContext
+    ) -> AsyncIterator[str]:
+        agent = self._resolve_agent(request.model)
+        if not auth.is_agent_allowed(agent.qualified_name):
+            raise PermissionError(
+                f"API key does not permit access to agent '{agent.qualified_name}'"
+            )
+        update_log_context(
+            agent_id=agent.qualified_name,
+            module_path=agent.module,
+            error_stage="agent_execution",
+        )
+        policy = self._build_policy(agent, request)
+        payload = self._build_payload(agent, request, policy)
+        try:
+            if agent.kind == "sdk":
+                response = await self._invoke_sdk_agent(agent, payload, request, policy)
+                for chunk in iter_sse_from_response(response):
+                    yield chunk
+                return
+            async for chunk in self._invoke_declarative_stream(agent, payload, request, policy):
+                yield chunk
+        finally:
+            update_log_context(agent_id=None, module_path=None, error_stage=None)
 
     def _resolve_agent(self, identifier: str) -> AgentSpec:
         agent = self._agent_registry.get_agent(identifier)
@@ -123,8 +154,7 @@ class AgentExecutor:
             payload["max_tokens"] = policy.max_completion_tokens
         elif request.max_tokens is not None:
             payload["max_tokens"] = request.max_tokens
-        if request.stream:
-            payload["stream"] = False
+        payload["stream"] = request.stream
 
         return {k: v for k, v in payload.items() if v is not None}
 
@@ -148,6 +178,116 @@ class AgentExecutor:
         finally:
             latency_ms = (perf_counter() - start) * 1000
             record_upstream_call(agent.upstream, latency_ms, success)
+
+    async def _invoke_declarative_stream(
+        self,
+        agent: AgentSpec,
+        payload: Dict[str, Any],
+        request: ChatCompletionRequest,
+        policy: ExecutionPolicy,
+    ) -> AsyncIterator[str]:
+        client = self._upstream_registry.get_client(agent.upstream)
+        hops = 0
+
+        while True:
+            start = perf_counter()
+            success = False
+            tool_calls: Dict[str, Dict[str, Any]] = {}
+            stream_id: str | None = None
+
+            try:
+                stream = client.chat.completions.create(stream=True, **payload)
+                iterator = iter(stream)
+                while True:
+                    try:
+                        data = await run_in_threadpool(next, iterator)
+                    except StopIteration:
+                        break
+                    chunk_model = ChatCompletionChunk.model_validate(data.model_dump())
+                    stream_id = stream_id or chunk_model.id
+                    self._accumulate_tool_calls(tool_calls, chunk_model)
+                    yield encode_sse_chunk(chunk_model)
+                    finish_reason = chunk_model.choices[0].finish_reason
+                    if finish_reason and finish_reason != "tool_calls":
+                        break
+                    if finish_reason == "tool_calls":
+                        break
+                success = True
+            except Exception:  # noqa: BLE001
+                response = await self._invoke_declarative_agent(agent, payload | {"stream": False})
+                for chunk in iter_sse_from_response(response):
+                    yield chunk
+                return
+            finally:
+                latency_ms = (perf_counter() - start) * 1000
+                record_upstream_call(agent.upstream, latency_ms, success)
+
+            if not tool_calls:
+                break
+            if policy.max_tool_hops <= 0:
+                break
+            if hops >= policy.max_tool_hops:
+                raise AgentExecutionError(
+                    f"Tool hop limit reached ({policy.max_tool_hops}) for {agent.qualified_name}"
+                )
+            hops += 1
+            tool_messages = self._execute_stream_tool_calls(
+                tool_calls, agent, stream_id, request, policy
+            )
+            payload["messages"].extend(tool_messages)
+            tool_calls = {}
+
+        yield "data: [DONE]\n\n"
+
+    def _accumulate_tool_calls(
+        self, accumulator: Dict[str, Dict[str, Any]], chunk: ChatCompletionChunk
+    ) -> None:
+        delta_calls = chunk.choices[0].delta.tool_calls or []
+        for call in delta_calls:
+            entry = accumulator.setdefault(
+                call.id,
+                {
+                    "id": call.id,
+                    "type": call.type,
+                    "function": {"name": call.function.name, "arguments": ""},
+                },
+            )
+            entry["function"]["arguments"] += call.function.arguments or ""
+
+    def _execute_stream_tool_calls(
+        self,
+        tool_calls: Dict[str, Dict[str, Any]],
+        agent: AgentSpec,
+        stream_id: str | None,
+        request: ChatCompletionRequest,
+        policy: ExecutionPolicy,
+    ) -> List[Dict[str, Any]]:
+        messages: List[Dict[str, Any]] = []
+        context = ToolInvocationContext(
+            agent_name=agent.qualified_name,
+            request_id=stream_id or f"stream-{agent.qualified_name}",
+            policy=policy,
+            user=request.user,
+            source="declarative",
+        )
+        for call in tool_calls.values():
+            function = call.get("function", {})
+            arguments = self._parse_arguments(function.get("arguments"))
+            tool_name = function.get("name")
+            update_log_context(error_stage="tool_invocation", tool_name=tool_name)
+            try:
+                result = tool_manager.invoke_tool(tool_name, arguments, context)
+            finally:
+                update_log_context(tool_name=None)
+            messages.append(
+                {
+                    "role": "tool",
+                    "name": tool_name,
+                    "tool_call_id": call.get("id"),
+                    "content": result,
+                }
+            )
+        return messages
 
     async def _run_tool_loop(
         self,

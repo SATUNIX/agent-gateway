@@ -13,7 +13,6 @@ from uuid import uuid4
 
 from agents.policies import ExecutionPolicy
 from api.models.chat import (
-    ChatCompletionChoice,
     ChatCompletionRequest,
     ChatCompletionResponse,
     ChatMessage,
@@ -61,6 +60,7 @@ class SDKAgentAdapter:
             messages=messages,
             policy=policy,
         )
+        self._enforce_sdk_tool_governance(instance)
         token = push_run_context(
             agent_spec=agent,
             request=request,
@@ -70,7 +70,7 @@ class SDKAgentAdapter:
             request_id=get_request_id(),
         )
         try:
-            result = self._execute_agent(instance, messages, request, policy, client)
+        result = self._execute_agent(instance, messages, request, policy, client)
             logger.info(
                 {
                     "event": "sdk_agent.success",
@@ -148,7 +148,7 @@ class SDKAgentAdapter:
             raise SDKAgentError("SDK agent factory returned None")
 
         if self._is_openai_agent(target):
-            return self._run_openai_agent(target, messages)
+            return self._run_openai_agent(target, messages, client)
 
         if hasattr(target, "run_sync"):
             return target.run_sync(
@@ -159,14 +159,14 @@ class SDKAgentAdapter:
                 messages=messages, request=request, policy=policy, client=client
             )
             if inspect.isawaitable(result):
-                return asyncio.run(result)
+                return self._run_coroutine(result)
             return result
         if callable(target):
             result = target(
                 messages=messages, request=request, policy=policy, client=client
             )
             if inspect.isawaitable(result):
-                return asyncio.run(result)
+                return self._run_coroutine(result)
             return result
         return target
 
@@ -222,37 +222,52 @@ class SDKAgentAdapter:
             return 0
         return max(1, math.ceil(len(text.split()) * 1.5))
 
-    def _run_openai_agent(self, agent_obj: Any, messages: List[Dict[str, Any]]) -> str:
+    def _run_openai_agent(
+        self, agent_obj: Any, messages: List[Dict[str, Any]], client: Any
+    ) -> str:
         runner_cls = self._load_runner()
 
         async def _run() -> Any:
-            prompt = self._build_prompt(messages)
-            result = await runner_cls.run(agent_obj, input=prompt)
-            return getattr(result, "final_output", result)
+            runner_input = self._build_runner_input(messages)
+            result = await runner_cls.run(agent_obj, input=runner_input, client=client)
+            if hasattr(result, "final_output"):
+                return result.final_output  # type: ignore[attr-defined]
+            if hasattr(result, "final_output_as"):
+                return result.final_output_as(str)  # type: ignore[attr-defined]
+            return result
 
-        return str(asyncio.run(_run()))
+        return str(self._run_coroutine(_run()))
 
     def _load_runner(self):
         try:
-            from agents import Runner
-        except ImportError as exc:
+            from agents import Runner, SDK_AVAILABLE
+        except ImportError as exc:  # pragma: no cover - import failures
             raise SDKAgentError(
                 "OpenAI Agents SDK is required to execute Agent objects"
             ) from exc
+        if not SDK_AVAILABLE:
+            raise SDKAgentError(
+                "OpenAI Agents SDK is required to execute Agent objects. "
+                "Install 'openai-agents' to run Agent Builder drop-ins."
+            )
         return Runner
 
     @staticmethod
-    def _build_prompt(messages: List[Dict[str, Any]]) -> str:
-        if not messages:
-            return ""
-        user_messages = [
-            SDKAgentAdapter._coerce_text(message.get("content"))
-            for message in messages
-            if message.get("role") == "user"
-        ]
-        if user_messages:
-            return user_messages[-1]
-        return SDKAgentAdapter._coerce_text(messages[-1].get("content"))
+    def _build_runner_input(messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Convert ChatCompletion messages into SDK-friendly input items."""
+
+        input_items: list[Dict[str, Any]] = []
+        for message in messages:
+            entry: Dict[str, Any] = {"role": message.get("role"), "content": message.get("content")}
+            tool_calls = message.get("tool_calls")
+            if tool_calls:
+                entry["tool_calls"] = tool_calls
+            if message.get("name"):
+                entry["name"] = message["name"]
+            if message.get("tool_call_id"):
+                entry["tool_call_id"] = message["tool_call_id"]
+            input_items.append(entry)
+        return input_items
 
     @staticmethod
     def _coerce_text(content: Any) -> str:
@@ -269,8 +284,38 @@ class SDKAgentAdapter:
         return str(content)
 
     @staticmethod
+    def _run_coroutine(coro):
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = None
+        if loop and loop.is_running():
+            return asyncio.run_coroutine_threadsafe(coro, loop).result()
+        new_loop = asyncio.new_event_loop()
+        try:
+            return new_loop.run_until_complete(coro)
+        finally:
+            new_loop.close()
+
+    @staticmethod
     def _is_openai_agent(obj: Any) -> bool:
         cls = getattr(obj, "__class__", None)
         if cls is None:
             return False
         return cls.__name__ == "Agent" and hasattr(obj, "instructions")
+
+    @staticmethod
+    def _enforce_sdk_tool_governance(target: Any) -> None:
+        """Require SDK tools to be gateway-managed for observability/ACLs."""
+
+        tools = getattr(target, "tools", None)
+        if not tools:
+            return
+        unmanaged = [tool for tool in tools if not getattr(tool, "__gateway_tool__", False)]
+        if unmanaged:
+            names = [getattr(t, "__name__", "tool") for t in unmanaged]
+            raise SDKAgentError(
+                "SDK agent tools must use sdk_adapter.gateway_tools.use_gateway_tool(...) "
+                "so the gateway can enforce allowlists and record metrics. "
+                f"Unmanaged tools: {', '.join(names)}"
+            )

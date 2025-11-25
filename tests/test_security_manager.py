@@ -104,3 +104,9 @@ def test_agent_override_and_preview(security_manager_tmp: SecurityManager) -> No
     sleep(1.1)
     ctx_after_expiry = security_manager_tmp.authenticate("super-secret")
     assert not ctx_after_expiry.is_agent_allowed("gamma/temporary")
+
+
+def test_agent_pattern_glob_matching(security_manager_tmp: SecurityManager) -> None:
+    ctx = security_manager_tmp.authenticate("super-secret")
+    assert ctx.is_agent_allowed("alpha/demo-123")
+    assert not ctx.is_agent_allowed("delta/demo")

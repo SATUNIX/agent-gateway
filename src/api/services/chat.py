@@ -30,10 +30,13 @@ class ChatCompletionService:
     async def stream_completion(
         self, request: ChatCompletionRequest, auth: AuthContext
     ) -> AsyncIterator[str]:
-        response, latency = await self._execute(request, auth)
-        for payload in iter_sse_from_response(response):
-            yield payload
-        metrics.record_completion(latency_ms=latency, streaming=True)
+        start = perf_counter()
+        try:
+            async for chunk in agent_executor.stream_completion(request, auth):
+                yield chunk
+        finally:
+            latency_ms = (perf_counter() - start) * 1000
+            metrics.record_completion(latency_ms=latency_ms, streaming=True)
 
     async def _execute(
         self, request: ChatCompletionRequest, auth: AuthContext

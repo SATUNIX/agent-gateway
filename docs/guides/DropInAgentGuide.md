@@ -99,7 +99,7 @@ Watch mode eliminates the need to call `/agents/refresh`:
 2. Set `GATEWAY_AGENT_WATCH=1`.
 3. Run the gateway (`PYTHONPATH=src uvicorn api.main:app --reload`).
 
-File changes under `src/agents/**` trigger incremental refreshes. If `watchfiles` is missing or the filesystem doesn’t support inotify, the gateway logs `agent.watch.disabled` and falls back to manual refresh.
+File changes under `src/agents/**` trigger incremental refreshes, including helper modules and `requirements.txt` next to your agent. If `watchfiles` is missing or the filesystem doesn’t support inotify, the gateway logs `agent.watch.disabled` and falls back to manual refresh.
 
 ---
 

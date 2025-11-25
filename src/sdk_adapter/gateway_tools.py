@@ -45,6 +45,7 @@ def gateway_tool(tool_name: str, *, description: str | None = None) -> Callable[
 
     _gateway_tool.__name__ = f"gateway_{tool_name}"
     _gateway_tool.__doc__ = description or f"Gateway-managed tool '{tool_name}'"
+    _gateway_tool.__gateway_tool__ = True  # marker for governance checks
     _TOOL_WRAPPER_CACHE[tool_name] = _gateway_tool
     return _gateway_tool
 
@@ -72,7 +73,7 @@ def _build_invocation_context(policy: ExecutionPolicy, ctx) -> ToolInvocationCon
         request_id=request_id,
         policy=policy,
         user=ctx.request.user,
-        source="gateway",
+        source="sdk",
     )
 
 

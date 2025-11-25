@@ -400,7 +400,7 @@ class AgentRegistry:
                 paths = {
                     Path(path)
                     for _, path in changes
-                    if path.endswith("agent.py")
+                    if path.endswith(".py") or path.endswith("requirements.txt")
                 }
                 if not paths:
                     continue
