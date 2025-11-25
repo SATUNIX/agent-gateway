@@ -1,5 +1,13 @@
 # Operator Runbook
 
+## Table of Contents
+- [1. Configuration Sources](#1-configuration-sources)
+- [2. Temporary Agent Overrides](#2-temporary-agent-overrides)
+- [3. Security Refresh & Audit](#3-security-refresh--audit)
+- [4. Incident Response Checklist](#4-incident-response-checklist)
+- [5. Observability & Metrics](#5-observability--metrics)
+- [6. Watch Mode & Auto-Reload](#6-watch-mode--auto-reload)
+
 This runbook summarizes common day-2 workflows for Agent Gateway operators, with a focus on security controls, temporary overrides, and observability. The gateway is designed to expose OpenAI Agents SDK modules as `/v1/chat/completions` models through a single, policy-driven surface.
 
 ## 1. Configuration Sources
@@ -65,6 +73,7 @@ Use the new admin endpoints to grant short-lived access without redeploying conf
 - Decision logs: `agent.security.decision`, `agent.security.override.created`, `agent.security.override.expired`.
 - Prometheus metrics: security counters for override usage and denied requests (see `/metrics` endpoint).
 - Combine logs with `/admin/agents` diagnostics to troubleshoot drop-in readiness issues quickly.
+- See `docs/systems/observability.md` for a full reference to logs, metrics, and error recorder usage.
 
 ## 6. Watch Mode & Auto-Reload
 

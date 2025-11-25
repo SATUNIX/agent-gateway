@@ -1,5 +1,18 @@
 # Drop-In Agent Guide
 
+## Table of Contents
+- [1. Prerequisites](#1-prerequisites)
+- [2. Repository Layout](#2-repository-layout)
+- [3. Building a Drop-In Agent](#3-building-a-drop-in-agent)
+- [4. Managing Dependencies](#4-managing-dependencies)
+- [4a. Upstream/model defaults](#upstreammodel-defaults)
+- [5. Watch Mode & Reloads](#5-watch-mode--reloads)
+- [6. Testing Drop-In Agents](#6-testing-drop-in-agents)
+- [7. Security Policies & Overrides](#7-security-policies--overrides)
+- [8. Common Workflows](#8-common-workflows)
+- [9. Troubleshooting Quick Reference](#9-troubleshooting-quick-reference)
+- [10. Next Steps](#10-next-steps)
+
 This guide explains how to drop OpenAI Agents SDK modules into the Agent Gateway and expose them automatically via `/v1/chat/completions`. The target UX is “copy an agent folder into `src/agents/<Name>` → run the gateway → chat immediately.”
 
 ---
@@ -43,6 +56,12 @@ docs/
 ```
 
 Drop-in modules live under `src/agents/**`. Each folder maps to `default/<lowercase-name>` unless a nested namespace is provided (e.g., `src/agents/labs/ResearchAgent` → `labs/researchagent`).
+
+### How discovery works (code pointers)
+- Discovery scans `agent.py` under `src/agents/**` and extra paths (defaults include `examples/agents/**`).
+- Core code: `src/registry/discovery.py` (file walker + diagnostics) and `src/registry/agents.py` (merges declarative and drop-ins).
+- Agent model: `src/registry/models.py::AgentSpec`.
+- Errors surface in `/admin/agents` and `/admin/agents/errors`; metrics in `/admin/metrics` (drop-in failure counters).
 
 ---
 
@@ -88,6 +107,9 @@ python scripts/install_agent_deps.py
 ```
 
 The discovery process checks for missing packages and reports dependency errors via `/admin/agents` diagnostics and `/admin/agents/errors`.
+
+### Upstream/model defaults
+- If your drop-in does not specify `__gateway__["model"]`/`__gateway__["upstream"]`, defaults come from `src/config/agents.yaml` (`defaults` block) or env overrides (`GATEWAY_DEFAULT_MODEL`, `GATEWAY_DEFAULT_UPSTREAM`).
 
 ---
 

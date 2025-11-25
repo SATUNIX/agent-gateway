@@ -1,5 +1,15 @@
 # Troubleshooting Guide
 
+## Table of Contents
+- [Quick Reference Matrix](#quick-reference-matrix)
+- [1. Discovery & Dependencies](#1-discovery--dependencies)
+- [2. Security & Access](#2-security--access)
+- [3. Tooling Issues](#3-tooling-issues)
+- [4. Watch Mode & Reloads](#4-watch-mode--reloads)
+- [5. Metrics & Observability](#5-metrics--observability)
+- [Logs and Error Recorder](#logs-and-error-recorder)
+- [6. Getting Help](#6-getting-help)
+
 Use this guide to diagnose and resolve common drop-in agent issues. Each entry references relevant admin endpoints, logs, and scripts.
 
 ---
@@ -113,6 +123,11 @@ Use Prometheus to track:
 | `agent_gateway_request_latency_ms` | Overall request latency |
 
 Bind dashboards/alerts to these metrics to detect regressions early.
+
+### Logs and Error Recorder
+- Logs are structured JSON with `request_id`, `agent_id`, `module_path`, `error_stage`, and event fields (`tool.invoke`, `sdk_agent.*`, `agent.security.decision`).
+- Recent errors: `/admin/agents/errors` exposes discovery/runtime issues with timestamps and context.
+- See `docs/systems/observability.md` for end-to-end observability guidance.
 
 ---
 

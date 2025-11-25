@@ -1,5 +1,14 @@
 # SDK Agent Onboarding Guide
 
+## Table of Contents
+- [1. Environment Setup](#1-environment-setup)
+- [2. Authoring SDK Agents](#2-authoring-sdk-agents)
+- [3. Dependency Management](#3-dependency-management)
+- [4. Local Testing](#4-local-testing)
+- [5. Security & Overrides](#5-security--overrides)
+- [6. Operational Best Practices](#6-operational-best-practices)
+- [7. Release Readiness Checklist](#7-release-readiness-checklist)
+
 This guide targets developers who maintain OpenAI Agents SDK modules that will run inside the Agent Gateway. It covers environment setup, authoring, dependency management, testing, and operational expectations.
 
 ---
@@ -62,8 +71,10 @@ agent = Agent(
 
 ### Tooling
 
-- Prefer SDK-native `@function_tool` for agent-specific logic. Native tools are now auto-instrumented for security/metrics (source="sdk").
+- Prefer SDK-native `@function_tool` for agent-specific logic. Native tools are auto-instrumented for security/metrics (source="sdk") but require an allowlist entry in `src/config/security.yaml` (`default.local_tools_allowlist`) unless you use gateway-managed tools.
 - Use `use_gateway_tool("name")` for centrally managed tools (benefits: shared observability, ACLs, retries). Gateway-managed tools remain the recommended option for shared utilities.
+
+Code references: governance lives in `sdk_adapter/adapter.py` (tool wrapping) and `security/manager.py` (allowlists).
 
 ### Metadata Overrides
 
@@ -94,6 +105,7 @@ Discovery verifies dependencies during import. Missing packages surface in:
 - `/admin/agents` (diagnostic entries)
 - `/admin/agents/errors`
 - Prometheus `agent_gateway_dropin_failures_total{kind="discovery_dependency"}`
+Code references: `registry/discovery.py` for diagnostics, `api/metrics.py` for counters.
 
 ---
 
